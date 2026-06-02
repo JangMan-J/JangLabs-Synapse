@@ -1,0 +1,65 @@
+{
+  "_comment": "Merged into ~/.claude/settings.json by claude/install.sh — hooks only; permissions are never touched. Existing keys are preserved; hook entries that aren't already registered are added. Hook command dirs use the literal 'HOOKS_DIR/' placeholder; install.sh rewrites each to $HOME/.claude/hooks at install time, so this fragment is host-agnostic.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/system-fingerprint.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/lab-scope.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-review-offer.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/bash-idiom-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/forbidden-files-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/config-drift-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/syntax-check-touched.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

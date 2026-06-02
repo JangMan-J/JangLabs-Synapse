@@ -1,0 +1,12 @@
+# Per-machine installer backups — not portable, regenerated on every install/uninstall.
+.install-backups/
+.uninstall-backups/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editors / OS
+*.swp
+*~
+.DS_Store
