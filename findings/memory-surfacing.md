@@ -1,0 +1,76 @@
+# Findings — memory-surfacing hooks (Phase 1)
+
+Append-only notes on non-obvious facts learned building the tag-routed memory-surfacing
+system. See `handoffs/2026-06-01-memory-surfacing-build-plan.md` for the plan.
+
+## Claude Code hook I/O contract (verified 2026-06-02, docs + on-box)
+
+- **Deny a PreToolUse tool call:** `echo "<reason>" >&2; exit 2`. Exit-2 + stderr is the
+  on-box-proven block path (every existing guard uses it; none use the JSON
+  `permissionDecision:deny` form). Prefer it for all blocking.
+- **Add context on PreToolUse:** exit 0 + JSON `{"hookSpecificOutput":{"hookEventName":
+  "PreToolUse","additionalContext":"..."}}`. Plain stdout does **not** inject on PreToolUse
+  (that is the UserPromptSubmit-only trick) — so `memory-write-context.sh` must emit the JSON
+  form (jq-escaped). `additionalContext` is capped at 10000 chars.
+- **PostToolUse:** the tool already ran; it cannot be blocked. `exit 2` + stderr is a
+  *non-blocking* error whose message is shown to Claude as correction pressure (what
+  `memory-catalog-refresh.sh` uses). The JSON `{"decision":"block","reason":...}` form would
+  stop the agentic loop, but no on-box hook uses it — we stay on the proven exit-2 mechanism.
+- **`UserPromptSubmit`** injects context via plain stdout (what `system-fingerprint.sh` /
+  `lab-scope.sh` / `memory-review-offer.sh` do).
+
+## memory_surface.py interface quirks the hooks depend on
+
+- `check-write` reads the **proposed full file** on stdin; emits its deny reason on **STDOUT**
+  (not stderr) with rc 2; rc 0 + silent when tags valid OR when there is no frontmatter/no
+  tags. So the guard captures check-write's stdout and re-emits it to its *own* stderr + exit 2.
+- A **missing store fails OPEN** for every subcommand (`main()` returns 0 if `memdir` isn't a
+  dir) — verified `MEMORY_SURFACE_DIR=/tmp/nope` → validate/check-write rc 0.
+- **`rc 2` is overloaded.** The engine's genuine deny is rc 2, but `python3 <missing-engine>`
+  and unknown subcommands ALSO exit 2. So the guard/refresh (a) `[ -r "$ENGINE" ] || exit 0`
+  (fail OPEN if the engine is unreadable — e.g. if `readlink -f` ever fails and `$ENGINE`
+  resolves to the never-created `~/.claude/lib`), and (b) require a non-empty reason/errs
+  before blocking. Caught in review 2026-06-02: a missing engine was false-DENYING valid writes.
+- **`check_write` rejects top-level `tags:`.** Tags must nest under `metadata:`; a top-level
+  `tags:` key parses into `top` (not `meta`) and would bypass validation, so check_write now
+  returns rc 2 on it (fail closed). The guard's whole job is fail-closed tag validation.
+- `rebuild` is **always rc 0**, writes `_memory_catalog.json` atomically, and prints
+  `{"invalidMemories":[…]}` to **stderr even on rc 0**. The refresh hook MUST keep
+  `>/dev/null 2>&1` on rebuild or that JSON leaks into context (the codex-package failure mode
+  the lab forbids).
+- Hooks honor `$MEMORY_SURFACE_DIR` for the STORE computation (same override the engine uses),
+  so the cheap-gate and the engine target the same store under test.
+
+## Accepted risks / design boundaries (not bugs)
+
+1. **Taxonomy TOCTOU.** `memory-write-guard` validates the *current on-disk* taxonomy at
+   PreToolUse (pre-write), so it can't catch an error the in-flight edit is about to introduce.
+   `memory-catalog-refresh` re-validates **post-write** as the authoritative gate: a bad
+   taxonomy edit lands once, then the PostToolUse hook flags it with correction pressure.
+2. **Edit/MultiEdit fail-open.** Only the *Write* tool (full `.content`) is tag-validated; a
+   new memory landed via Edit/MultiEdit (or MultiEdit) bypasses PreToolUse tag validation by
+   design (a bare `new_string` can't be reconstructed into parseable frontmatter). `rebuild`
+   still **omits** invalid-tag memories from the catalog (they just don't surface). Tightening
+   later: surface rebuild's `invalidMemories` stderr instead of discarding it.
+3. **Path canonicalization is LEXICAL (`realpath -sm`).** The cheap-gate canonicalizes both
+   `abs` and `STORE` with `realpath -sm` (collapse `..`/`//`/trailing-slash; do NOT resolve
+   symlinks) before `case "$abs" in "$STORE"/*`. The `-s` (no-symlink) flag is essential: the
+   taxonomy files are symlinks into the lab, so a symlink-*resolving* canonicalizer
+   (`readlink -m`/`realpath` without `-s`) would resolve them OUT of the store and silently
+   break taxonomy gating. **Correction (review 2026-06-02):** an earlier textual-only gate had
+   a real bug — `$STORE/../other/x.md` (or a relative `../x.md` with cwd=store) textually
+   matched `$STORE/*` and **FALSE-DENIED** an out-of-store write (the worst outcome). The
+   lexical canonicalization closes it; regression-tested in `tests/memory_surface/test_hooks_phase1.sh`.
+4. **PostToolUse exit-2 is non-blocking** — it surfaces the invalid-taxonomy message but does
+   not hard-stop the loop. A hard stop would require the unproven `decision:block` JSON.
+5. **Context repetition.** `memory-write-context` injects the full `_tags.md` (~4.5 KB, under
+   the 10 KB cap) on every real-memory write. Fine for a low-frequency action.
+
+## Deploy posture
+
+- Phase 1 is **build-but-leave-off**: the 3 hooks are registered in
+  `settings.global.fragment.json` and committed, but going live needs
+  `./agent-harness.py install --apply`. Kill-switch: create
+  `<store>/.surface-disabled` to disable every memory hook instantly.
+- Hook files must be committed **mode 100755** (`git add --chmod=+x`); a 644 checkout strips
+  the exec bit (`core.fileMode=false` here ignores fs mode). See the installer-rename commit.

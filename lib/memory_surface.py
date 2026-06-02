@@ -316,7 +316,10 @@ def _closest(tag, active, n=3):
 def check_write(memdir, content):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
-    _, meta, _ = parse_frontmatter(content)
+    top, meta, _ = parse_frontmatter(content)
+    if "tags" in top:                                  # tags MUST nest under metadata: else they
+        return 2, ("memory tags must be nested under 'metadata:' — found a top-level 'tags' key; "
+                   "move it under the metadata: block so the tags are validated.")
     mtags = meta.get("tags", []) or []
     for t in mtags:
         if not TAG_RE.match(t):

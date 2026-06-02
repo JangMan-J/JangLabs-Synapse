@@ -45,6 +45,16 @@
             "type": "command",
             "command": "HOOKS_DIR/config-drift-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-write-context.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-write-guard.sh",
+            "timeout": 10
           }
         ]
       }
@@ -56,6 +66,11 @@
           {
             "type": "command",
             "command": "HOOKS_DIR/syntax-check-touched.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-catalog-refresh.sh",
             "timeout": 10
           }
         ]

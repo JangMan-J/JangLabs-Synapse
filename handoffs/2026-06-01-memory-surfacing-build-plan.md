@@ -1,7 +1,10 @@
 # Memory surfacing — autonomous build plan + progress (Phases 1–3)
 
 **Status:** IN PROGRESS (autonomous `/goal`, started 2026-06-01). Phase 1 *engine + taxonomy data*
-DONE + verified; Phase 1 *hooks/install/settings* TODO; Phases 2–3 TODO. Resumable from here.
+DONE; Phase 1 *hooks + settings + tests* DONE (2026-06-02) — built, registered, adversarially reviewed
+(all findings fixed), 40 tests pass; **deploy posture = build-but-leave-off** (registered in the fragment
+but not applied live; go-live = `./agent-harness.py install --apply`, kill-switch `<store>/.surface-disabled`).
+Phases 2–3 TODO. Resumable from here.
 
 **What this is:** implementing the documented tag-routed memory-surfacing plan
 (`2026-05-10-memory-system-overhaul.md` + `2026-05-11-...-rerun.md`, the chosen spec; comparison
@@ -70,18 +73,18 @@ verdict `2026-05-11-...-comparison.md`). Phase 0 (tag the corpus + `_tags.md` vo
   (51 mem, 0 invalid, 0 round-trip structural drift; check-write allow/deny/deny correct).
 - [DONE] `claude/memory/_tag_links.md` — seeded graph (7 synonyms, 22 path-tags, all active tags).
 - [DONE] `claude/memory/_tags.md` — added `## Denylist` + `## Policy overrides`.
-- [TODO] `claude/hooks/memory-write-context.sh` — PreToolUse Edit|Write|MultiEdit; on a memory-file write
+- [DONE] `claude/hooks/memory-write-context.sh` — PreToolUse Edit|Write|MultiEdit; on a memory-file write
   emit `additionalContext` with `_tags.md` excerpt; never blocks; quiet else.
-- [TODO] `claude/hooks/memory-write-guard.sh` — PreToolUse Edit|Write|MultiEdit; cheap-gate to memory dir +
+- [DONE] `claude/hooks/memory-write-guard.sh` — PreToolUse Edit|Write|MultiEdit; cheap-gate to memory dir +
   `.surface-disabled`; Write→`check-write` full content (deny on rc2, FAIL CLOSED); Edit/MultiEdit validate
   new_string tags else FAIL OPEN; taxonomy edits validate+deny-on-error, allow bootstrap.
-- [TODO] `claude/hooks/memory-catalog-refresh.sh` — PostToolUse Edit|Write|MultiEdit; cheap-gate; run
+- [DONE] `claude/hooks/memory-catalog-refresh.sh` — PostToolUse Edit|Write|MultiEdit; cheap-gate; run
   `rebuild`; on post-write invalid taxonomy emit top-level `{"decision":"block","reason":...}`.
 - [DONE] `claude/agent-harness.py` (replaces install.sh+uninstall.sh) — per-hook-command merge fix +
   generated-file exclusion from 1b. Parity-verified vs old bash; merge fix demonstrated.
-- [TODO] `claude/settings.global.fragment.json` — add the 3 write-side hooks into existing
+- [DONE] `claude/settings.global.fragment.json` — add the 3 write-side hooks into existing
   Edit|Write|MultiEdit (Pre) + new PostToolUse Edit|Write|MultiEdit entries.
-- [TODO] `claude/tests/memory_surface/test_phase1.py` — round-trip (all live mem), block-list tags,
+- [DONE] `claude/tests/memory_surface/test_phase1.py` (+ `test_hooks_phase1.sh`) — round-trip (all live mem), block-list tags,
   denylist, check-write, rebuild schema, invalid-omitted.
 
 **Phase 2 — canonicalizer + search engine** (deploy = build-but-leave-off; dry-run/tests only)
