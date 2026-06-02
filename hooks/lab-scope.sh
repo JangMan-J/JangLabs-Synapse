@@ -35,7 +35,7 @@ case "$cwd" in
   "$root"/*) rel=${cwd#"$root"/}; lab=${rel%%/*} ;;
   *)         exit 0 ;;
 esac
-case "$lab" in .*) lab="" ;; esac   # dot-dirs (.git, .devcontainer) are not labs
+case "$lab" in .*|build) lab="" ;; esac   # dot-dirs + the build/ output dir are not labs
 
 ws=$(basename "$root")
 
@@ -50,7 +50,7 @@ printf '%s' "$lab" > "$state" 2>/dev/null || true
 if [ -z "$lab" ]; then
   printf '<workspace-scope>\n'
   printf 'Scope: **%s** workspace root (no single lab). Authority: ./CLAUDE.md.\n' "$ws"
-  printf 'Every top-level non-dot directory is an independent nested repo (git submodule); cd into one and read its CLAUDE.md before editing there.\n'
+  printf 'Every top-level non-dot directory (except build/) is an independent nested repo (git submodule); cd into one and read its CLAUDE.md before editing there.\n'
   printf '</workspace-scope>\n'
   exit 0
 fi
