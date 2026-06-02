@@ -221,22 +221,22 @@ def load_fragment_hooks() -> dict:
 
 
 def merge_hooks(settings: dict, frag_hooks: dict) -> dict:
-    """Reconcile fragment hooks into settings at per-command granularity within each
-    (event, matcher). A command already present anywhere in the event is skipped, so the
-    merge is idempotent and never duplicates a hook across blocks. NOTE: dedup is per-EVENT
-    by design — a command may appear at most once per event; registering the same hook under
-    two matchers of one event is intentionally unsupported (the second copy would be dropped)."""
+    """Reconcile fragment hooks into settings at per-(event, matcher) granularity. A command
+    already present under the SAME matcher string is skipped (idempotent — no duplicates across
+    same-matcher blocks), but the same command MAY be registered under two DIFFERENT matchers of
+    one event (e.g. recall under the native-tools matcher AND the Context7 MCP-regex matcher)."""
     sh = settings.setdefault("hooks", {})
     for event, fblocks in frag_hooks.items():
         sblocks = sh.setdefault(event, [])
-        present = {
-            h["command"]
-            for b in sblocks
-            for h in b.get("hooks", [])
-            if "command" in h
-        }
         for fb in fblocks:
             matcher = fb.get("matcher")
+            # commands already registered under THIS matcher (across all same-matcher blocks)
+            present = {
+                h["command"]
+                for b in sblocks if b.get("matcher") == matcher
+                for h in b.get("hooks", [])
+                if "command" in h
+            }
             new_hooks = [h for h in fb.get("hooks", []) if h.get("command") not in present]
             if not new_hooks:
                 continue
@@ -248,7 +248,6 @@ def merge_hooks(settings: dict, frag_hooks: dict) -> dict:
             target.setdefault("hooks", [])
             for h in new_hooks:
                 target["hooks"].append(copy.deepcopy(h))
-                present.add(h.get("command"))
     return settings
 
 

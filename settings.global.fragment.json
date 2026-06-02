@@ -1,5 +1,5 @@
 {
-  "_comment": "Merged into ~/.claude/settings.json by claude/agent-harness.py (install subcommand) — hooks only; permissions (allow/deny, defaultMode, bypass flags) are NEVER touched. Existing keys are preserved; each hook command not already registered is added at per-command granularity within its (event, matcher) block, so a hook can be added INTO an existing matcher block and a command already present anywhere in that event is never duplicated. Grouping is therefore free — a hook no longer needs its own group object (the old jq merge deduped whole groups by their first command, which is why lab-scope.sh used to sit alone; that workaround is gone). Hook command dirs use the literal 'HOOKS_DIR/' placeholder; agent-harness.py rewrites each to $HOME/.claude/hooks at install time, so this fragment is host-agnostic.",
+  "_comment": "Merged into ~/.claude/settings.json by claude/agent-harness.py (install subcommand) — hooks only; permissions (allow/deny, defaultMode, bypass flags) are NEVER touched. Existing keys are preserved; each hook command not already registered is added at per-command granularity within its (event, matcher) block, so a hook can be added INTO an existing matcher block, a command already present under the SAME matcher is never duplicated, and the same command MAY be registered under two DIFFERENT matchers of one event (e.g. memory-recall.sh under the native-tools matcher AND the Context7 MCP-regex matcher). Grouping is therefore free — a hook no longer needs its own group object (the old jq merge deduped whole groups by their first command, which is why lab-scope.sh used to sit alone; that workaround is gone). Hook command dirs use the literal 'HOOKS_DIR/' placeholder; agent-harness.py rewrites each to $HOME/.claude/hooks at install time, so this fragment is host-agnostic.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -55,6 +55,26 @@
             "type": "command",
             "command": "HOOKS_DIR/memory-write-guard.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-recall.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_context7_context7__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-recall.sh",
+            "timeout": 5
           }
         ]
       }

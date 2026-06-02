@@ -430,6 +430,21 @@ class ReviewRegressions(Base):
         rc, _ = ms.add_tag(self.store, "freshtag", "a perfectly fine six word description here", "tool")
         self.assertEqual(rc, 0)                                        # unrelated edit still allowed
 
+    def test_mutator_blocks_duplicate_error_edit(self):
+        # a NEW edit producing a message IDENTICAL to a pre-existing error must still roll back.
+        (self.store / "_tag_links.md").write_text(
+            "# tag links\n## Synonyms\n- `ghost` = `kwin` - bad\n## Distinctions\n## Path Tags\n")
+        before = (self.store / "_tag_links.md").read_text()
+        rc, _ = ms.link(self.store, "ghost", "git")    # 'ghost' canonical not active -> same error string
+        self.assertEqual(rc, 2)                         # multiplicity diff -> not masked
+        self.assertEqual((self.store / "_tag_links.md").read_text(), before)  # rolled back
+
+    def test_sudo_flag_and_env_extraction(self):
+        norm = lambda c: sorted(t["value"] for t in self._search(
+            {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": "/"})["tokens"])
+        self.assertEqual(norm("sudo -u bob pacman -S nvidia"), ["nvidia", "pacman"])   # 'bob' dropped
+        self.assertEqual(norm("env FOO=bar pacman -S nvidia"), ["nvidia", "pacman"])   # 'env' dropped
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

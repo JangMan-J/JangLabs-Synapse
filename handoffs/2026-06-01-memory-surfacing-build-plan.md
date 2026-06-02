@@ -4,7 +4,7 @@
 DONE; Phase 1 *hooks + settings + tests* DONE (2026-06-02) — built, registered, adversarially reviewed
 (all findings fixed), 40 tests pass; **deploy posture = build-but-leave-off** (registered in the fragment
 but not applied live; go-live = `./agent-harness.py install --apply`, kill-switch `<store>/.surface-disabled`).
-Phases 2–3 TODO. Resumable from here.
+Phases 2–3 DONE (2026-06-02, build-but-leave-off; live-deploy runbook below). Phase 4 (strict/obligation) not built. Resumable from here.
 
 **What this is:** implementing the documented tag-routed memory-surfacing plan
 (`2026-05-10-memory-system-overhaul.md` + `2026-05-11-...-rerun.md`, the chosen spec; comparison
@@ -87,27 +87,37 @@ verdict `2026-05-11-...-comparison.md`). Phase 0 (tag the corpus + `_tags.md` vo
 - [DONE] `claude/tests/memory_surface/test_phase1.py` (+ `test_hooks_phase1.sh`) — round-trip (all live mem), block-list tags,
   denylist, check-write, rebuild schema, invalid-omitted.
 
-**Phase 2 — canonicalizer + search engine** (deploy = build-but-leave-off; dry-run/tests only)
-- [TODO] extend `memory_surface.py`: `search --event ev.json` (reads catalog, §10 response), token
-  extraction (P4), synonym canonicalization, path-tag fnmatch (`**` suffix, `~` only), ranking (§12:
-  +10 strong_exact +9 path +7 synonym +4 path_component +3 cmd/pkg +2 slug +1 type_boost −5 stale −2
-  decline −8 distinction_conflict), confidence tiers (high≥10, med≥6, low silent), min-candidate (§11h),
-  queryHash (P8); `link/unlink/add-tag/dismiss` mutators (atomic, fail-closed).
-- [TODO] `_memory_surface_config.json` (store-owned; mode=advisory; thresholds). NOT symlinked.
-- [TODO] `claude/tests/memory_surface/{fixtures/,test_phase2.py}` — synthetic PreToolUse payloads +
-  frozen expected outputs; ranking math; queryHash determinism; bodies-never-loaded; perf smoke.
+**Phase 2 — canonicalizer + search engine** (deploy = build-but-leave-off; dry-run/tests only) — DONE 2026-06-02 (commit 4602006)
+- [DONE] extended `memory_surface.py`: `search` (§10 response), token extraction (§11, per-tool),
+  synonym canonicalization, path-tag fnmatch (`**` suffix, `~` only), §12 ranking + confidence tiers +
+  min-candidate, deterministic §15 queryHash; `link/unlink/add-tag/dismiss` mutators (atomic, fail-closed).
+  Adversarially reviewed (5-agent); 22 findings fixed + pinned with 13 regression tests.
+- [DONE-as-loader] `_memory_surface_config.json`: `load_config` + `DEFAULT_CONFIG` (mode=advisory) implemented;
+  the live config FILE is a deploy artifact (defaults apply when absent), created at cutover — see runbook.
+- [DONE] `claude/tests/memory_surface/test_phase2.py` — 45 cases (frozen fixtures, ranking math, queryHash
+  determinism, bodies-never-loaded, mutator fail-closed, review-regression pins).
 
-**Phase 3 — advisory recall + MEMORY.md router** (deploy = DEPLOY-NOW; advisory only)
-- [TODO] `claude/hooks/memory-recall.sh` — PreToolUse on `Bash|Read|Edit|Write|MultiEdit|WebFetch|WebSearch`
-  AND a separate `mcp__plugin_context7_context7__.*` block; cheap-gate; run `search`; emit advisory
-  `<memory-recall mode="advisory">` additionalContext (≤3, ≤220 desc, ≤4000 block, XML-escaped); NEVER
-  deny in v1; dedup by queryHash (900s); FAIL OPEN.
-- [TODO] `MEMORY.md` → capped router (≤40 nonblank lines, no line-per-memory; keep a short [Method]/[Fumble]
-  pointer); capture old index in the commit before overwrite.
-- [TODO] `claude/CLAUDE.md.fragment` — update `## Memory consultation` to the recall-block flow.
-- [TODO] `claude/settings.global.fragment.json` — add `memory-recall.sh` (2 matcher blocks).
-- [TODO] `claude/tests/memory_surface/test_phase3.py` — hook integration via stdin JSON; advisory-only;
-  router validator; no-prompt-trigger regression.
+**Phase 3 — advisory recall + MEMORY.md router** (deploy = build-but-leave-off this session; runbook below) — DONE 2026-06-02
+- [DONE] `claude/hooks/memory-recall.sh` — PreToolUse advisory; cheap-gate (kill-switch, memory-dir skip,
+  pure-generic Bash) before python; runs `search`; emits `<memory-recall mode="advisory">` additionalContext;
+  NEVER denies (Phase 4 = deny); dedup queryId ~15min; FAILS OPEN. 8 integration tests.
+- [DONE-validator] `MEMORY.md` router: `validate_router` (§4) + `router-template` CLI + `router-check` CLI;
+  5 tests. The LIVE MEMORY.md cutover is DEFERRED to deploy (converting it while recall is off would orphan
+  memories) — see runbook.
+- [DONE] `claude/CLAUDE.md.fragment` — `## Memory consultation` rewritten to the recall-block flow (deploy-coupled).
+- [DONE] `claude/settings.global.fragment.json` — `memory-recall.sh` registered in 2 PreToolUse blocks.
+- [DONE] `claude/tests/memory_surface/test_phase3.py` — 13 tests (hook integration via stdin JSON; advisory-only;
+  never-deny; dedup; fail-open; router validator).
+
+## Live-deploy runbook (build-but-leave-off → on; the user's call — recall spawns python per non-generic tool call, cheap-gated)
+1. Build the catalog once: `python3 ~/.claude/projects/<key>/memory/… NO` → from the store dir run
+   `MEMORY_SURFACE_DIR=<store> python3 <lab>/lib/memory_surface.py rebuild` (search fails closed if the catalog is absent).
+2. Convert the index (back it up first): `cp <store>/MEMORY.md <store>/MEMORY.md.prerouter` then
+   `python3 <lab>/lib/memory_surface.py router-template > <store>/MEMORY.md` (verify `router-check` rc 0).
+3. (optional) write the live config: `{ "mode": "advisory" }` to `<store>/_memory_surface_config.json` (defaults already = advisory).
+4. Apply the harness: from `claude/`, `./agent-harness.py install --apply` (deploys all 4 memory hooks + the fragment update), then restart Claude Code / `/reload-plugins`.
+5. Kill-switch any time: `touch <store>/.surface-disabled` disables every memory hook instantly.
+Phase 4 (NOT built): strict-high-confidence required mode + obligation-guard/read-satisfy — needs real-session observation first.
 
 ## Acceptance (per phase) — see the rerun spec §13–16 + each file's contract above. Key gates:
 P1: round-trip preserves nested metadata byte-structure on all live memories; check-write deny/allow;

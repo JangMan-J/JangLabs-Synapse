@@ -20,7 +20,7 @@ path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.path /
 
 case "$path" in
   /*) abs=$path ;;
-  *)  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true); abs="${cwd:-$PWD}/$path" ;;
+  *)  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true); abs="${cwd:-${PWD:-}}/$path" ;;
 esac
 
 # Store location — derive from $HOME ('/' -> '-'); NEVER hardcode the key. Honors

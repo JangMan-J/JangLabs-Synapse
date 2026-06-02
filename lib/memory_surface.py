@@ -381,6 +381,7 @@ INSTALLERS = {"pacman", "paru", "yay", "pip", "pip3", "npm", "pnpm", "yarn", "ca
 UNIT_RE = re.compile(r"\.(service|socket|timer|target|mount|path|scope)$")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")    # leading VAR=val env assignment
 _PRIVILEGE = {"sudo", "doas", "pkexec"}
+_RUNNER_VALUE_FLAGS = {"-u", "-g", "--user", "--group", "-p", "-C", "-r", "-t", "-h"}
 
 
 def _pkgname(a):
@@ -452,8 +453,19 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
     if tool == "Bash":
         for seg in re.split(r"\s*(?:;|&&|\|\||\|)\s*", ti.get("command", "") or ""):
             words = [w.strip("\"'") for w in seg.split()]           # strip surrounding quotes
-            while words and (words[0] in _PRIVILEGE or _ENVVAR_RE.match(words[0])):
-                words = words[1:]                                  # drop sudo/doas/pkexec / VAR=val prefix
+            saw_runner = False                                     # drop privilege/env runner + its flags
+            while words:
+                w = words[0]
+                if w in _PRIVILEGE or w == "env":
+                    words, saw_runner = words[1:], True
+                elif _ENVVAR_RE.match(w):
+                    words = words[1:]                              # VAR=val (with or without a runner)
+                elif saw_runner and w in _RUNNER_VALUE_FLAGS:
+                    words = words[2:]                              # runner flag + value (sudo -u bob)
+                elif saw_runner and w.startswith("-"):
+                    words = words[1:]                              # valueless runner flag (sudo -i)
+                else:
+                    break
             if not words:
                 continue
             base = words[0].rsplit("/", 1)[-1]
@@ -743,9 +755,12 @@ def _mutate_then_validate(memdir, path, old_text, new_text):
     """Write new_text atomically; roll back only if it introduces a NEW validation error
     (pre-existing unrelated errors must not block an edit). Rebuild on success, and fail closed
     (rollback) if rebuild raises so the taxonomy and catalog never diverge."""
-    pre = set(validate(memdir))
+    pre = validate(memdir)                             # list — subtract by MULTIPLICITY, not set
     write_atomic(path, new_text if new_text.endswith("\n") else new_text + "\n")
-    new_errs = [e for e in validate(memdir) if e not in pre]
+    new_errs = list(validate(memdir))
+    for e in pre:                                      # a duplicate new error (same string) must NOT be masked
+        if e in new_errs:
+            new_errs.remove(e)
     if new_errs:
         write_atomic(path, old_text)
         rc = 3 if any(("both a synonym and a distinction" in e
@@ -817,6 +832,46 @@ def dismiss(query_id, reason):
     return 0, f"dismiss noted (advisory; no obligation state in Phase 2): {query_id} — {reason}"
 
 
+# ---------------------------------------------------------------- MEMORY.md router (§4)
+ROUTER_TEMPLATE = """# Memory router
+
+Project memories are surfaced by the tool-call memory recall hook.
+Do not skim this directory by habit.
+
+When a `<memory-recall>` block appears, use it as project context.
+Read full memory files only when the surfaced summary is action-changing.
+
+When writing memories, use tags from `_tags.md`; add a genuinely new tag there first.
+"""
+
+_MEM_LINK_RE = re.compile(
+    r"^\s*(?:[-*+]|\d+\.)\s*(?:\[\[[^\]]+\]\]|\[.*\]\([^)]+\.md\))", re.IGNORECASE)
+
+
+def validate_router(path, memdir=None):
+    """Validate MEMORY.md as a capped router (§4). Returns (rc, messages): rc 0 ok (maybe a
+    warning), rc 2 fail. Flags a line-per-memory index — >=10 memory links AND (when the store is
+    known) at least half as many links as memory files — or >40 nonblank lines;
+    MEMORY_SURFACE_ALLOW_LONG_INDEX=1 lifts the 40-line cap; >20 lines warns. Catches `[text](x.md)`,
+    `[[wikilink]]`, and `-`/`*`/`+`/numbered bullets (case-insensitive)."""
+    p = Path(path)
+    if not p.exists():
+        return 0, []
+    nonblank = [ln for ln in p.read_text().split("\n") if ln.strip()]
+    links = [ln for ln in nonblank if _MEM_LINK_RE.match(ln)]
+    n_mem = sum(1 for _ in _memory_files(memdir)) if memdir else None
+    msgs, rc = [], 0
+    if len(links) >= 10 and (n_mem is None or len(links) >= 0.5 * n_mem):
+        rc = 2
+        msgs.append(f"line-per-memory index ({len(links)} memory links) — convert to a router")
+    if len(nonblank) > 40 and os.environ.get("MEMORY_SURFACE_ALLOW_LONG_INDEX") != "1":
+        rc = 2
+        msgs.append(f"{len(nonblank)} nonblank lines > 40 (set MEMORY_SURFACE_ALLOW_LONG_INDEX=1 to allow)")
+    elif len(nonblank) > 20:
+        msgs.append(f"{len(nonblank)} nonblank lines > 20 — keep the router compact")
+    return rc, msgs
+
+
 # ---------------------------------------------------------------- CLI
 def _arg(flag, default=None):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
@@ -871,6 +926,14 @@ def main():
         ef = _arg("--event")
         event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
         print(json.dumps(search(memdir, event), ensure_ascii=False))
+        return 0
+    if cmd == "router-check":
+        rc, msgs = validate_router(memdir / "MEMORY.md", memdir)
+        for m in msgs:
+            print(m, file=(sys.stderr if rc else sys.stdout))
+        return rc
+    if cmd == "router-template":
+        sys.stdout.write(ROUTER_TEMPLATE)
         return 0
     if cmd in ("link", "unlink", "add-tag", "dismiss"):
         pos = _positionals()
