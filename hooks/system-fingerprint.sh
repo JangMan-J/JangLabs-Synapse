@@ -28,15 +28,25 @@ os=$(
   fi
 )
 
-# Bootloader, detected as non-root: systemd-boot exports LoaderInfo to the EFI vars
-# at boot (world-readable), whereas `bootctl is-installed` needs root to open the ESP.
-if ls /sys/firmware/efi/efivars/LoaderInfo-* >/dev/null 2>&1; then
-  boot="systemd-boot (NOT grub)"
-elif command -v grub-mkconfig >/dev/null 2>&1 || [ -e /boot/grub/grub.cfg ]; then
-  boot="GRUB"
-else
-  boot="(bootloader undetected)"
+# Bootloader — read the loader's self-reported NAME from the Boot Loader Interface
+# EFI var (LoaderInfo, GUID 4a67b082…, world-readable). systemd-boot, Limine, and
+# rEFInd ALL write it, so the old "var exists ⇒ systemd-boot" check misfired — it
+# read this box's Limine as systemd-boot for months. Read the UTF-16 string (drop the
+# 4-byte attr prefix, keep printables); never infer the loader from the var's presence.
+# NAME ONLY: it says nothing about ESP layout / initramfs / regen tool / module-load
+# order — see "The Linux boot chain is verify-only" in CLAUDE.md before acting on it.
+boot=""
+for f in /sys/firmware/efi/efivars/LoaderInfo-*; do
+  [ -r "$f" ] || continue
+  boot=$(tail -c +5 "$f" 2>/dev/null | LC_ALL=C tr -cd '[:print:]')
+  boot=${boot%"${boot##*[![:space:]]}"}   # trim trailing space
+  break
+done
+if [ -z "$boot" ]; then
+  if command -v grub-mkconfig >/dev/null 2>&1 || [ -e /boot/grub/grub.cfg ]; then boot="GRUB"
+  else boot="(undetected)"; fi
 fi
+boot="$boot — loader name only; verify ESP/initramfs/regen-tool/load-order live"
 
 # Tool versions, only if present. Empty string if missing.
 v() { command -v "$1" >/dev/null 2>&1 && "$1" --version 2>/dev/null | grep -m1 -E '[0-9]' | sed 's/^[^A-Za-z]*//' || true; }
