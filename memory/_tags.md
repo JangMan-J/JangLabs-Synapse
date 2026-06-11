@@ -31,6 +31,8 @@ already in `metadata.type` and the `[Method]`/`[Fumble]` title prefix.)
 - audio — PipeWire/WirePlumber/ALSA audio: mic & speaker routing, capture gain levels, dictation/voice input, noise suppression
 - codex — OpenAI Codex CLI as used on this box: interactive TUI, sandbox/approval flags (-s/-a), --cd working root, rollout JSONL, as a co-agent/reviewer (turnbridge)
 - input-devices — evdev/uinput input stack: input-remapper, Razer/openrazer mice, virtual keyboards, button/combo remapping, device grabbing, hyprwhspr shortcut capture
+- electron — Electron/Chromium desktop apps on this box: app.asar patching, system-electron AUR packages, chromium flags files, Wayland/ozone behavior
+- qemu-vm — QEMU/KVM virtual machines on this box: quickemu, macOS guest, OVMF/OpenCore, QEMU monitor socket (distinct from vfio = GPU passthrough)
 
 ## tool
 - accessibility — color-vision / contrast / a11y constraints on any generated visual output (statusline, charts, diagrams, syntax themes)
