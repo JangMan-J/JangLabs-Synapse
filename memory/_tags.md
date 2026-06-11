@@ -47,7 +47,6 @@ already in `metadata.type` and the `[Method]`/`[Fumble]` title prefix.)
 - limine — Limine bootloader / limine-mkinitcpio
 - moshi — Moshi mobile-app agent bridge
 - openrouter — OpenRouter unified API (OPENROUTER_API_KEY in env; OpenAI-compatible /chat/completions)
-- pnpm — pnpm package manager: pnpm-workspace.yaml, lockfile import/migration, allowBuilds, dlx/exec vs npx
 - pipewire — PipeWire/WirePlumber + ALSA mixer: wpctl (set-volume/set-default), pw-record, amixer hardware capture-gain controls
 
 ## method-pattern  (only on [Method]/[Fumble] memories)
