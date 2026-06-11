@@ -46,3 +46,5 @@ prune, and extend it; that is the taxonomy-curator's job (one human pass every f
 - `~/.config/kwinrc` -> `kde-plasma`, `kwin` @ strong
 - `~/.config/plasma**` -> `kde-plasma` @ strong
 - `~/.claude/**` -> `claude-harness` @ strong
+- `pkill` -> `self-kill-trap` @ strong ; any pkill in tool argv risks self-killing the Bash call
+- `ctx7` -> `tool-output-untrusted` @ strong ; context7 output has carried prompt injection
