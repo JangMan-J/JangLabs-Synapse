@@ -24,6 +24,14 @@ Frontmatter contract (per memory file):
 
 Missing fields are tolerated: lastReviewed falls back to file mtime,
 declineCount to 0, nextEligible to lastReviewed.
+
+INTAKE MODE (2026-06-11): a memory with NO lastReviewed field has never been
+human-confirmed — it is intake backlog, eligible IMMEDIATELY (no 30-day wait)
+and offered deterministically (no dice) so curation keeps pace with accretion.
+The THRESHOLD_DAYS staleness cycle starts only after the first keep/refresh
+writes lastReviewed. Before this, a store could accrue 130+ memories while the
+game stayed mathematically silent for its first month (overdue = age - 30 was
+0 everywhere); the hook's once-per-day cap is the only rate limit that matters.
 """
 import datetime
 import random
@@ -77,17 +85,32 @@ def read_frontmatter(path: Path):
     m = FRONTMATTER_RE.match(txt)
     if not m:
         return {}, {}, txt
+    lines = m.group(1).splitlines()
     top, meta = {}, {}
     in_meta = False
-    for raw in m.group(1).splitlines():
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
         if not raw.strip():
+            i += 1
             continue
         if raw[0] in (" ", "\t"):          # indented -> child of metadata:
             if in_meta and ":" in raw:
                 k, v = raw.strip().split(":", 1)
-                meta[k.strip()] = v.strip()
+                k, v = k.strip(), v.strip()
+                if k == "tags" and not v:  # block-list tags: consume the '- item' lines and
+                    items, j = [], i + 1   # normalize to flow form, else a rewrite DROPS them
+                    while j < len(lines) and lines[j].strip().startswith("- "):
+                        items.append(lines[j].strip()[2:].strip().strip('"').strip("'"))
+                        j += 1
+                    meta["tags"] = "[" + ", ".join(items) + "]"
+                    i = j
+                    continue
+                meta[k] = v
+            i += 1
             continue
         if ":" not in raw:
+            i += 1
             continue
         k, v = raw.split(":", 1)
         k, v = k.strip(), v.strip()
@@ -96,6 +119,7 @@ def read_frontmatter(path: Path):
         else:
             in_meta = False
             top[k] = v
+        i += 1
     return top, meta, txt[m.end():]
 
 
@@ -160,14 +184,22 @@ def state(path: Path):
         "declines": declines,
         "days_since": days_since,
         "overdue": max(0, days_since - THRESHOLD_DAYS),
+        "reviewed": "lastReviewed" in meta,
         "description": top.get("description", "(no description)").strip().strip('"').strip("'"),
     }
 
 
+def pressure(s):
+    """Review pressure in days. Reviewed memories: staleness overdue past the threshold.
+    Never-reviewed memories: full age, floored at 1 — intake backlog must not wait out
+    THRESHOLD_DAYS (the lockout that kept the wheel silent for the store's first month)."""
+    return s["overdue"] if s["reviewed"] else max(1, s["days_since"])
+
+
 def offer_score(s):
-    if s["overdue"] == 0:
+    if pressure(s) == 0:
         return 0.0
-    rate = BASE_OFFER_RATE * (1 + s["overdue"] / 30) * (1 + 0.2 * s["declines"])
+    rate = BASE_OFFER_RATE * (1 + pressure(s) / 30) * (1 + 0.2 * s["declines"])
     return min(MAX_OFFER_RATE, rate)
 
 
@@ -175,7 +207,7 @@ def pick_candidate():
     candidates = []
     for p in memory_files():
         s = state(p)
-        if s["overdue"] == 0:
+        if pressure(s) == 0:
             continue
         if TODAY < s["next_eligible"]:
             continue
@@ -208,11 +240,14 @@ If they say Keep / save / wait: `python3 {sys.argv[0]} keep {name}`
 Anything else (including silence on next reply): `python3 {sys.argv[0]} flip {name}`
 Then proceed to their actual ask.
 </memory-review-offer>"""
+    freshness = (f"Last reviewed: {s['days_since']} days ago (overdue by {s['overdue']})"
+                 if s["reviewed"] else
+                 f"Never reviewed — saved {s['days_since']}d ago (intake backlog)")
     return f"""<memory-review-offer mode="round" name="{name}">
 🎰 MEMORY ROULETTE — the wheel landed on: {name}
 
   📜 {desc}
-  ⏱  Last reviewed: {s['days_since']} days ago (overdue by {s['overdue']})
+  ⏱  {freshness}
   🎯 Declines: {s['declines']} / {DECLINE_THRESHOLD}
 
 Surface this to the user as a BRIEF aside BEFORE answering their actual prompt.
@@ -237,7 +272,9 @@ def cmd_offer():
     if path is None or s is None:
         return
     forced = s["declines"] >= DECLINE_THRESHOLD
-    if not forced and random.random() > offer_score(s):
+    # Intake backlog (never reviewed) offers deterministically — the dice gate is only
+    # for the steady-state staleness cycle. The hook's daily marker caps the rate.
+    if not forced and s["reviewed"] and random.random() > offer_score(s):
         return
     print(render_offer(path, s, forced_flip=forced))
 
@@ -251,8 +288,8 @@ def cmd_play(name=None):
         s = state(path)
     else:
         cands = [(p, state(p)) for p in memory_files()]
-        cands.sort(key=lambda c: -c[1]["overdue"])
-        if not cands or cands[0][1]["overdue"] == 0:
+        cands.sort(key=lambda c: -pressure(c[1]))
+        if not cands or pressure(cands[0][1]) == 0:
             print("<memory-review-offer mode='none'>"
                   "No memories are overdue. The board is empty. 🪑"
                   "</memory-review-offer>")
@@ -341,15 +378,15 @@ def cmd_status():
     rows = []
     for p in memory_files():
         s = state(p)
-        rows.append((p.stem, s["days_since"], s["overdue"],
-                     s["declines"], s["next_eligible"].isoformat(),
+        rows.append((p.stem + ("" if s["reviewed"] else " *"), s["days_since"],
+                     pressure(s), s["declines"], s["next_eligible"].isoformat(),
                      offer_score(s)))
     rows.sort(key=lambda r: (-r[2], -r[3]))
-    print(f"{'name':38} {'age':>4} {'over':>5} {'decl':>5} "
+    print(f"{'name (* = never reviewed)':40} {'age':>4} {'prs':>5} {'decl':>5} "
           f"{'next':>12} {'p(offer)':>9}")
     print("-" * 80)
     for r in rows:
-        print(f"{r[0]:38} {r[1]:>4} {r[2]:>5} {r[3]:>5} "
+        print(f"{r[0]:40} {r[1]:>4} {r[2]:>5} {r[3]:>5} "
               f"{r[4]:>12} {r[5]:>9.3f}")
 
 
