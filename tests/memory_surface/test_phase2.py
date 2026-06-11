@@ -120,7 +120,29 @@ class TokenExtraction(Base):
                           "tool_input": {"command": "systemctl restart tailscale.service"}, "cwd": "/"})
         kinds = {t["value"]: (t["kind"], t["strength"]) for t in r["tokens"]}
         self.assertEqual(kinds.get("tailscale"), ("unit", "strong"))
-        self.assertEqual(kinds.get("restart"), ("argument", "strong"))
+        self.assertNotIn("restart", kinds)               # generic verb never takes the strong slot
+
+    def test_known_tag_arg_promoted_past_generic_verb(self):
+        # `daemon restart zsh`: the verb is skipped and the tag-valued arg is strong evidence.
+        r = self._search({"tool_name": "Bash",
+                          "tool_input": {"command": "shellmgr restart zsh"}, "cwd": "/"})
+        kinds = {t["value"]: (t["kind"], t["strength"]) for t in r["tokens"]}
+        self.assertEqual(kinds.get("zsh"), ("argument", "strong"))
+        self.assertNotIn("restart", kinds)
+        self.assertEqual(r["results"][0]["id"], "rec-f")
+
+    def test_installer_tag_package_promoted(self):
+        # installing a package that IS a known tag surfaces its memories strongly.
+        r = self._search({"tool_name": "Bash",
+                          "tool_input": {"command": "pacman -S zsh"}, "cwd": "/"})
+        self.assertTrue(any(t["value"] == "zsh" and t["strength"] == "strong" for t in r["tokens"]))
+        self.assertEqual(r["results"][0]["id"], "rec-f")
+
+    def test_generic_command_does_not_promote_tag_arg(self):
+        # §11 pinned: generic commands never surface, even with a tag-valued argument.
+        r = self._search({"tool_name": "Bash",
+                          "tool_input": {"command": "grep zsh /tmp/notes.txt"}, "cwd": "/"})
+        self.assertEqual(r["results"], [])
 
     def test_edit_on_memory_path_is_skipped(self):
         r = self._search({"tool_name": "Edit",
@@ -133,6 +155,42 @@ class TokenExtraction(Base):
                           "tool_input": {"libraryName": "tailscale"}})
         self.assertTrue(any(t["value"] == "tailscale" and t["strength"] == "strong"
                             for t in r["tokens"]))
+
+
+class CommandBasenameRules(unittest.TestCase):
+    """Slash-free Path-Tag patterns are command-basename rules (the `_tag_links.md` grammar:
+    'file-path glob / command basename / hostname'). Pinned 2026-06-11: these were dead code —
+    path_tag_hits only ran on /-or-~/ words, so `systemctl`/`limine-mkinitcpio` rules never fired."""
+
+    LINKS = LINKS_MD + "- `kwinctl` -> `kwin`\n- `kwin-*` -> `kwin`\n"
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = Path(self._td.name)
+        make_store(self.store, links=self.LINKS)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _search(self, cmd):
+        return ms.search(self.store, {"tool_name": "Bash", "tool_input": {"command": cmd},
+                                      "cwd": "/"}, now=NOW)
+
+    def test_basename_rule_fires(self):
+        r = self._search("sudo kwinctl info")
+        self.assertIn("kwin", r["canonicalTags"])
+        self.assertEqual(r["results"][0]["id"], "rec-a")  # 9 path_rule + 1 feedback
+        self.assertEqual(r["confidence"], "high")
+
+    def test_basename_glob_rule_fires(self):
+        r = self._search("kwin-debug --tree")
+        self.assertIn("kwin", r["canonicalTags"])
+        self.assertTrue(r["results"])
+
+    def test_path_glob_rule_does_not_match_basename(self):
+        # a slash-containing pattern must never match a bare command word.
+        r = self._search("kitty")                        # `~/.config/kitty/**` must not fire
+        self.assertEqual(r["results"], [])
 
 
 class PathTags(unittest.TestCase):
@@ -440,8 +498,8 @@ class ReviewRegressions(Base):
         self.assertEqual((self.store / "_tag_links.md").read_text(), before)  # rolled back
 
     def test_sudo_flag_and_env_extraction(self):
-        norm = lambda c: sorted(t["value"] for t in self._search(
-            {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": "/"})["tokens"])
+        norm = lambda c: sorted({t["value"] for t in self._search(
+            {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": "/"})["tokens"]})
         self.assertEqual(norm("sudo -u bob pacman -S nvidia"), ["nvidia", "pacman"])   # 'bob' dropped
         self.assertEqual(norm("env FOO=bar pacman -S nvidia"), ["nvidia", "pacman"])   # 'env' dropped
 

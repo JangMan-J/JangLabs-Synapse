@@ -377,6 +377,11 @@ def load_config(memdir):
 GENERIC_BASH = {"ls", "pwd", "cd", "cat", "sed", "awk", "grep", "rg",
                 "find", "head", "tail", "wc", "jq"}
 GENERIC_TWO = {"git status", "git diff"}
+# Content-light subcommand verbs (service/pkg managers): never worth the one strong-argument
+# slot — `systemctl restart pipewire` must yield `pipewire`, not `restart`.
+GENERIC_VERBS = {"restart", "start", "stop", "status", "enable", "disable", "reload",
+                 "list", "show", "info", "help", "version", "get", "set",
+                 "add", "install", "remove", "update", "upgrade"}
 INSTALLERS = {"pacman", "paru", "yay", "pip", "pip3", "npm", "pnpm", "yarn", "cargo", "apt"}
 UNIT_RE = re.compile(r"\.(service|socket|timer|target|mount|path|scope)$")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")    # leading VAR=val env assignment
@@ -473,9 +478,20 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
             installer = base in INSTALLERS
             if not is_generic:
                 add(base, "command", "weak")
+            for ptags, _ in path_tag_hits(base, path_tags):        # slash-free patterns are
+                path_rule_tags.update(ptags)                       # command-basename rules (§7)
             args = [w for w in words[1:] if not w.startswith("-")]
-            if args and not is_generic and not installer:
-                add(args[0], "argument", "strong")                 # generic/installer first-arg isn't strong
+            if not is_generic and not installer:
+                for a in args:                                     # first content-bearing arg only;
+                    if a.lower() in GENERIC_VERBS:                 # generic/installer first-arg isn't strong
+                        continue
+                    add(a, "argument", "strong")
+                    break
+            if not is_generic:
+                for a in args:                                     # any arg that IS a known tag/alias
+                    v = a.strip().lower()                          # is strong evidence wherever it sits
+                    if v in active or v in aliases:
+                        add(v, "argument", "strong")
             if installer:
                 pkgs = args[1:] if (args and args[0] in ("install", "add", "i", "remove", "rm")) else args
                 for a in pkgs:

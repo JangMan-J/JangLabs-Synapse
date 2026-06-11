@@ -3,8 +3,10 @@
 #
 # Surfaces matching box-brain memories as additionalContext so Claude treats them as
 # project context. ADVISORY ONLY in v1: it NEVER denies a tool call (the required/deny
-# path is Phase 4). Fails OPEN on every error. Deduplicates a given recall (by queryId)
-# within a 15-minute window so the same match isn't re-injected every tool call.
+# path is Phase 4). Fails OPEN on every error. Deduplicates per MEMORY within a
+# 15-minute window: a block is emitted only when it contains at least one memory not
+# already surfaced recently — different-but-similar calls hash to fresh queryIds, so a
+# queryId-keyed dedup would re-inject near-identical advisories every few tool calls.
 #
 # This is the one memory hook that must spawn Python (the search engine) — so it
 # cheap-gates hard in shell first: kill-switch, memory-dir writes, and pure-generic
@@ -61,17 +63,24 @@ case "$n" in ''|0|*[!0-9]*) exit 0 ;; esac              # no results -> silent
 
 surface=$(printf '%s' "$resp" | jq -r '.surfaceText // empty' 2>/dev/null || true)
 [ -n "$surface" ] || exit 0
-qid=$(printf '%s' "$resp" | jq -r '.queryId // empty' 2>/dev/null || true)
 
-# Dedup: skip if this queryId was surfaced within the last 15 minutes (~900s TTL).
-if [ -n "$qid" ]; then
+# Dedup per MEMORY (not per queryId): emit only if some matched memory was NOT surfaced
+# within the last 15 minutes (~900s TTL); then refresh the marks for all of them.
+ids=$(printf '%s' "$resp" | jq -r '(.results // [])[].id // empty' 2>/dev/null || true)
+if [ -n "$ids" ]; then
   DD="${XDG_RUNTIME_DIR:-/tmp/claude-$(id -u 2>/dev/null || echo u)}/claude-memory-recall"
   mkdir -p "$DD" 2>/dev/null || true
-  MARK="$DD/$qid"
-  if [ -f "$MARK" ] && [ -n "$(find "$MARK" -mmin -15 2>/dev/null)" ]; then
-    exit 0
-  fi
-  : > "$MARK" 2>/dev/null || true
+  fresh=0
+  for id in $ids; do
+    MARK="$DD/m_${id//[^A-Za-z0-9._-]/_}"
+    if ! { [ -f "$MARK" ] && [ -n "$(find "$MARK" -mmin -15 2>/dev/null)" ]; }; then
+      fresh=1
+    fi
+  done
+  [ "$fresh" -eq 1 ] || exit 0
+  for id in $ids; do
+    : > "$DD/m_${id//[^A-Za-z0-9._-]/_}" 2>/dev/null || true
+  done
 fi
 
 # Emit advisory additionalContext. NEVER deny in v1 (mustRead/required is Phase 4). Force the

@@ -95,6 +95,25 @@ class Recall(unittest.TestCase):
         self.assertNotEqual(first.strip(), "")
         self.assertEqual(second.strip(), "", "second identical recall should be deduped")
 
+    def test_dedup_is_per_memory_not_per_query(self):
+        # Pinned 2026-06-11: queryId-keyed dedup let different-but-similar calls re-inject the
+        # SAME memories under fresh query hashes. 'kwin' and 'plasma-compositor' match the same
+        # {rec-a, rec-b} set -> the second call must stay silent.
+        a = {"tool_name": "WebSearch", "tool_input": {"query": "kwin"}}
+        b = {"tool_name": "WebSearch", "tool_input": {"query": "plasma-compositor"}}
+        _, first, _ = run_hook(RECALL, a, self.store, self.xdg)
+        _, second, _ = run_hook(RECALL, b, self.store, self.xdg)
+        self.assertNotEqual(first.strip(), "")
+        self.assertEqual(second.strip(), "", "same memories under a new queryId must be deduped")
+
+    def test_new_memory_set_still_emits(self):
+        a = {"tool_name": "WebSearch", "tool_input": {"query": "kwin"}}
+        b = {"tool_name": "WebSearch", "tool_input": {"query": "git"}}
+        _, first, _ = run_hook(RECALL, a, self.store, self.xdg)
+        _, second, _ = run_hook(RECALL, b, self.store, self.xdg)
+        self.assertNotEqual(first.strip(), "")
+        self.assertNotEqual(second.strip(), "", "a disjoint memory set must still surface")
+
     def test_fail_open_when_engine_unreadable(self):
         # copy the hook somewhere with no ../lib so the engine resolves to a non-existent path
         iso = Path(tempfile.mkdtemp())

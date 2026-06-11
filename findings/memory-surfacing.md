@@ -133,7 +133,13 @@ exact gap this hook closes. Once the floor is live, that warning is in context f
 SessionStart, and the class of mistake it documents is far less likely. The feature's value was
 demonstrated by the bug its own absence permitted.
 
-## ⚠️ ACTIVE TODO — the live-store infra symlinks are ABSOLUTE (flagged 2026-06-06)
+## ~~ACTIVE TODO~~ RESOLVED 2026-06-11 — the live-store infra symlinks are ABSOLUTE (flagged 2026-06-06)
+
+**Resolution (2026-06-11):** all 11 store symlinks pointing into JangLabs (the 3 infra files
+plus 8 per-entry memories that had also accumulated as absolute links) were recreated as
+relative (`../../../../JangLabs/claude/memory/<f>`) via `ln -sfn`. Verified: 0 dangling,
+`validate` clean, and a live `limine-mkinitcpio` search probe routes through the relative
+taxonomy at high confidence. The section below is kept for the original analysis.
 
 **Read this if you're working on the memory system here.** The live box-brain store does not
 hold its own taxonomy/scaffolding — it **symlinks into THIS lab**:
@@ -165,3 +171,28 @@ robustness upgrade, not a live breakage.
 **Also note (resolved 2026-06-06):** the lab's `.gitignore` now ignores `memory/*.md` and
 un-ignores `memory/_*.md`, so the per-entry memories don't churn git while the 3 infra files
 (the symlink targets above) stay versioned. `_review_game.py` is `.py`, untouched by the rule.
+
+## Recall-quality fixes (2026-06-11, session "JangsRecall")
+
+Assessment of the live system found the engine green on 111 tests yet failing obvious live
+probes. Three engine/hook defects fixed, each pinned with tests written against the *declared*
+grammar rather than the implementation:
+
+1. **Command-basename Path-Tag rules were dead code.** `_tag_links.md` declares Path Tags match
+   "file-path glob / command basename / hostname", and 13 of its 22 rules are bare basenames
+   (`systemctl`, `limine-mkinitcpio`, `pacman`, …) — but `extract_tokens` only ran
+   `path_tag_hits` on `/`-or-`~/`-prefixed words, so none ever fired (`sudo limine-mkinitcpio`
+   returned zero results). Fix: slash-free patterns now also match the command basename of each
+   Bash segment. The 111 passing tests missed this because they asserted what the code did, not
+   what the taxonomy grammar promises — pin tests against the spec, not the implementation.
+2. **The strong-argument slot took generic verbs and dropped tag-valued args.**
+   `systemctl --user restart pipewire` extracted strong `restart` (noise) and lost `pipewire`.
+   Fix: a `GENERIC_VERBS` set is skipped for the first-strong-arg slot, and any non-flag arg
+   that IS an active tag/alias is promoted to a strong token (non-generic commands and
+   installers; generic commands stay non-surfacing per the §11 pin).
+3. **Dedup was per queryId, not per memory.** Different-but-similar calls hash to fresh
+   queryIds, so the same 3 memories re-injected repeatedly (observed 3× in ~6 tool calls).
+   Fix: `memory-recall.sh` now marks each surfaced memory id; a block is emitted only when it
+   contains at least one memory not surfaced within the 15-min TTL.
+
+Hostname Path-Tag matching remains unimplemented (no rule uses it; add only with a use case).

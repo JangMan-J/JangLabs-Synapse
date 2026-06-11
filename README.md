@@ -26,7 +26,7 @@ A tag-routed memory system (the "ToolSearch pattern transposed to memories") lay
 |---|---|---|
 | `memory-base-floor.sh` | `SessionStart` | **Base layer** — inject the box-brain `MEMORY.md` router into every session whose active store isn't box-brain; silent (no double-load) when launched at `$HOME`. Re-fires on compact. |
 | *(native)* `<repo>/memory/MEMORY.md` | startup | **Scoped layer** — the active repo's own store, auto-loaded by Claude Code, adds atop the floor. |
-| `memory-recall.sh` | `PreToolUse` | **Demand-paging** — advisory `<memory-recall>` block of tag/tool-evidence-routed matches before a tool call; never denies, fails open, dedups ~15 min. |
+| `memory-recall.sh` | `PreToolUse` | **Demand-paging** — advisory `<memory-recall>` block of tag/tool-evidence-routed matches before a tool call; never denies, fails open, dedups per memory ~15 min. |
 | `memory-write-context.sh` / `memory-write-guard.sh` | `PreToolUse` | On writes to the store: surface write-time context, and validate tags against `_tags.md` (taxonomy writes fail **closed**). |
 | `memory-catalog-refresh.sh` | `PostToolUse` | Rebuild `_memory_catalog.json` after a memory write. |
 | `lib/memory_surface.py` | — | The engine: token extraction, semantic-graph canonicalization (`_tags.md` + `_tag_links.md`), ranking, catalog build, router validation. |
