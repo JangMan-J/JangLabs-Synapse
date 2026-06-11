@@ -17,6 +17,16 @@ Subcommands:
   flip    <name>   Theatrical version of toss (post-5-declines).
   later   <name>   Increment declineCount, set nextEligible back-off.
 
+Tag rounds (vocabulary curation — the loop the game was originally designed for):
+  tag-status       Tabular vocabulary health (carriers / condition / review state).
+  tag-keep <tag>   Vocabulary is right; bank the tag for 90 days.
+  tag-retire <tag> Remove from _tags.md + scrub _tag_links.md references.
+                   FAILS CLOSED with carriers > 0 or when validation breaks.
+  tag-later <tag>  Snooze 7d x declines (no auto-flip for vocabulary).
+Offer priority: vocabulary defects (orphan / >=25-carrier overbroad) take the day;
+then entry rounds; quiet days go to the tag backlog (never-reviewed, then >90d).
+Tag review state lives in _tag_review.json (catalog-invisible sidecar).
+
 Frontmatter contract (per memory file):
   lastReviewed:  ISO date of last "still true" confirmation.
   declineCount:  consecutive Laters since last keep/refresh.
@@ -34,6 +44,7 @@ game stayed mathematically silent for its first month (overdue = age - 30 was
 0 everywhere); the hook's once-per-day cap is the only rate limit that matters.
 """
 import datetime
+import json
 import random
 import re
 import sys
@@ -50,6 +61,20 @@ THRESHOLD_DAYS = 30          # files younger than this never trigger an offer
 DECLINE_THRESHOLD = 5        # Nth Later forces a board-flip on next offer
 BASE_OFFER_RATE = 0.05
 MAX_OFFER_RATE = 0.50
+
+# --- tag rounds (vocabulary curation — the taxonomy decay loop) ---
+TAG_STATE = MEMDIR / "_tag_review.json"   # _-prefixed: invisible to catalog/recall globs
+TAG_THRESHOLD_DAYS = 90                   # vocabulary drifts slower than entries
+TAG_OVERBROAD = 25                        # carriers >= this dilute recall -> split offer
+
+# The taxonomy engine (parse/validate/rebuild) lives in the lab's lib/ next to this
+# file's real location (the store copy is a symlink). Tag OFFERS fail open without it;
+# tag MUTATIONS (retire) fail closed — never edit _tags.md unvalidated.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    import memory_surface as _ms
+except Exception:
+    _ms = None
 
 REWARDS = [
     "🏆 +1 trophy. Banked.",
@@ -268,15 +293,25 @@ If the user ignores the offer entirely, treat as Later.
 
 
 def cmd_offer():
+    # Vocabulary DEFECTS (orphan/overbroad) take the day's offer — they are rare,
+    # resolve in a round or two, and would otherwise starve behind entry rounds.
+    tc = pick_tag_candidate(special_only=True)
+    if tc is not None:
+        print(render_tag_offer(tc))
+        return
     path, s = pick_candidate()
-    if path is None or s is None:
+    if path is not None and s is not None:
+        forced = s["declines"] >= DECLINE_THRESHOLD
+        # Intake backlog (never reviewed) offers deterministically — the dice gate is
+        # only for the steady-state staleness cycle. The hook's daily marker caps the rate.
+        if not forced and s["reviewed"] and random.random() > offer_score(s):
+            return
+        print(render_offer(path, s, forced_flip=forced))
         return
-    forced = s["declines"] >= DECLINE_THRESHOLD
-    # Intake backlog (never reviewed) offers deterministically — the dice gate is only
-    # for the steady-state staleness cycle. The hook's daily marker caps the rate.
-    if not forced and s["reviewed"] and random.random() > offer_score(s):
-        return
-    print(render_offer(path, s, forced_flip=forced))
+    # Entry board clear: spend the quiet day on the tag backlog (new, then >90d stale).
+    tc = pick_tag_candidate()
+    if tc is not None:
+        print(render_tag_offer(tc))
 
 
 def cmd_play(name=None):
@@ -390,6 +425,172 @@ def cmd_status():
               f"{r[4]:>12} {r[5]:>9.3f}")
 
 
+# ---------------------------------------------------------------- tag rounds
+def _load_tag_state():
+    try:
+        return json.loads(TAG_STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_tag_state(st):
+    tmp = TAG_STATE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(st, indent=1, sort_keys=True) + "\n")
+    tmp.replace(TAG_STATE)
+
+
+def _tag_inventory():
+    """[(tag, gloss, carriers)] from _tags.md + the catalog; None if either is
+    unavailable (tag rounds then fail open — offer nothing, break nothing)."""
+    if _ms is None:
+        return None
+    try:
+        active = _ms.parse_tags_md(MEMDIR / "_tags.md")["active"]
+        t2m = json.loads((MEMDIR / "_memory_catalog.json").read_text())["tagToMemoryIds"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return [(t, g, len(t2m.get(t, []))) for t, g in sorted(active.items())]
+
+
+def _tag_condition(carriers):
+    if carriers == 0:
+        return "orphan"
+    if carriers >= TAG_OVERBROAD:
+        return "overbroad"
+    return "normal"
+
+
+def pick_tag_candidate(special_only=False):
+    """Deterministic (no dice — the wheel theater is for entries): orphans first, then
+    overbroad, then never-reviewed, then >90d stale; alphabetical within a class.
+    Respects each tag's nextEligible snooze."""
+    inv = _tag_inventory()
+    if inv is None:
+        return None
+    st = _load_tag_state()
+    classes = {"orphan": [], "overbroad": [], "new": [], "stale": []}
+    for tag, gloss, n in inv:
+        s = st.get(tag, {})
+        if TODAY < parse_date(s.get("nextEligible"), datetime.date.min):
+            continue
+        cond = _tag_condition(n)
+        cand = {"tag": tag, "gloss": gloss, "carriers": n, "cond": cond,
+                "declines": int(s.get("declineCount", 0) or 0)}
+        if cond != "normal":
+            classes[cond].append(cand)
+        elif special_only:
+            continue
+        elif s.get("lastReviewed") is None:
+            classes["new"].append(cand)
+        elif (TODAY - parse_date(s["lastReviewed"], TODAY)).days > TAG_THRESHOLD_DAYS:
+            classes["stale"].append(cand)
+    for cls in ("orphan", "overbroad", "new", "stale"):
+        if classes[cls]:
+            return classes[cls][0]
+    return None
+
+
+def render_tag_offer(c):
+    note = {"orphan": "ORPHAN — zero memories carry it; retire unless it names work in flight",
+            "overbroad": f"OVERBROAD — >= {TAG_OVERBROAD} carriers dilute recall; consider splitting "
+                         "the domain and retagging, or keep if it is genuinely one topic",
+            "normal": "routine vocabulary check"}[c["cond"]]
+    return f"""<memory-review-offer mode="tag-round" name="{c['tag']}">
+🎡 TAG ROULETTE — vocabulary review: `{c['tag']}`
+
+  📖 gloss: {c['gloss']}
+  🔗 carriers: {c['carriers']} memories
+  ⚠  {note}
+  🎯 Declines: {c['declines']} (snooze grows 7d each)
+
+Surface this to the user as a BRIEF aside BEFORE answering their actual prompt.
+Offer four choices:
+  (K)eep   — vocabulary is right, bank it for {TAG_THRESHOLD_DAYS}d
+  (G)loss  — re-write this tag's gloss line in _tags.md first, then run tag-keep
+  (R)etire — remove from the vocabulary (refused while carriers > 0; retag them first)
+  (L)ater  — not now
+
+After their answer, call exactly one of:
+  python3 {sys.argv[0]} tag-keep   {c['tag']}
+  python3 {sys.argv[0]} tag-retire {c['tag']}
+  python3 {sys.argv[0]} tag-later  {c['tag']}
+Surface the one-line stdout verbatim, then proceed to the user's real request.
+If the user ignores the offer entirely, treat as Later.
+</memory-review-offer>"""
+
+
+def cmd_tag_keep(tag):
+    st = _load_tag_state()
+    st[tag] = {"lastReviewed": TODAY.isoformat(), "declineCount": 0,
+               "nextEligible": (TODAY + datetime.timedelta(days=TAG_THRESHOLD_DAYS)).isoformat()}
+    _save_tag_state(st)
+    print(f"🏷  Banked tag '{tag}' for {TAG_THRESHOLD_DAYS}d. {reward()}")
+
+
+def cmd_tag_later(tag):
+    st = _load_tag_state()
+    s = st.get(tag, {})
+    d = int(s.get("declineCount", 0) or 0) + 1
+    s["declineCount"] = d
+    s["nextEligible"] = (TODAY + datetime.timedelta(days=7 * d)).isoformat()
+    st[tag] = s
+    _save_tag_state(st)
+    print(f"⏰ Tag '{tag}' snoozed {7 * d}d (decline #{d}; no auto-flip for vocabulary).")
+
+
+def cmd_tag_retire(tag):
+    """Remove a tag from _tags.md and scrub _tag_links.md lines referencing it.
+    FAIL CLOSED: refuses with carriers, without the engine, or if validation breaks."""
+    if _ms is None:
+        print("tag-retire refused: taxonomy engine unavailable (cannot validate)", file=sys.stderr)
+        sys.exit(2)
+    inv = _tag_inventory()
+    entry = next((c for c in (inv or []) if c[0] == tag), None)
+    if inv is None or entry is None:
+        print(f"tag-retire refused: '{tag}' not an active tag (or catalog unavailable)", file=sys.stderr)
+        sys.exit(2)
+    if entry[2] > 0:
+        print(f"tag-retire refused: '{tag}' still has {entry[2]} carriers — retag them first "
+              f"(grep 'tags:.*{tag}' over the store)", file=sys.stderr)
+        sys.exit(2)
+    tags_p, links_p = MEMDIR / "_tags.md", MEMDIR / "_tag_links.md"
+    old_tags = tags_p.read_text()
+    old_links = links_p.read_text() if links_p.exists() else None
+    line_re = re.compile(r"^- " + re.escape(tag) + r"\s+[—-]\s")
+    new_tags = "\n".join(ln for ln in old_tags.split("\n") if not line_re.match(ln))
+    _ms.write_atomic(tags_p, new_tags)
+    if old_links is not None:
+        new_links = "\n".join(ln for ln in old_links.split("\n")
+                              if f"`{tag}`" not in ln)
+        _ms.write_atomic(links_p, new_links)
+    errs = _ms.validate(MEMDIR)
+    if errs:
+        _ms.write_atomic(tags_p, old_tags)
+        if old_links is not None:
+            _ms.write_atomic(links_p, old_links)
+        print("tag-retire rolled back — validation failed: " + "; ".join(errs), file=sys.stderr)
+        sys.exit(2)
+    _ms.rebuild(MEMDIR)
+    st = _load_tag_state()
+    st.pop(tag, None)
+    _save_tag_state(st)
+    print(f"🗑  Tag '{tag}' retired from the vocabulary (links scrubbed, catalog rebuilt).")
+
+
+def cmd_tag_status():
+    inv = _tag_inventory()
+    if inv is None:
+        print("tag inventory unavailable (engine or catalog missing)", file=sys.stderr)
+        sys.exit(2)
+    st = _load_tag_state()
+    print(f"{'tag':36} {'carriers':>8} {'cond':>10} {'reviewed':>12} {'next':>12}")
+    print("-" * 84)
+    for tag, _, n in sorted(inv, key=lambda c: (c[2] != 0, -c[2], c[0])):
+        s = st.get(tag, {})
+        print(f"{tag:36} {n:>8} {_tag_condition(n):>10} "
+              f"{s.get('lastReviewed', '-'):>12} {s.get('nextEligible', '-'):>12}")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "offer"
     arg = sys.argv[2] if len(sys.argv) > 2 else None
@@ -402,6 +603,10 @@ def main():
         "later":   lambda: cmd_later(arg),
         "toss":    lambda: cmd_toss(arg),
         "flip":    lambda: cmd_flip(arg),
+        "tag-keep":   lambda: cmd_tag_keep(arg),
+        "tag-later":  lambda: cmd_tag_later(arg),
+        "tag-retire": lambda: cmd_tag_retire(arg),
+        "tag-status": lambda: cmd_tag_status(),
     }
     fn = dispatch.get(cmd)
     if fn is None:

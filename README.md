@@ -12,7 +12,7 @@ A Claude Code harness for this box. A dozen hook scripts + a CLAUDE.md fragment 
 | Output verification | `syntax-check-touched.sh` runs `jq empty` / `python -c ast.parse` / `bash -n` etc. on touched files | `PostToolUse` (Edit/Write/MultiEdit) | 10–100ms when fires |
 | Secret-write block | `forbidden-files-guard.sh` blocks writes to `.env`, `*.key`, `*.pem`, `~/.ssh/`, `~/.gnupg/` | `PreToolUse` (Edit/Write/MultiEdit) | ~5ms |
 | Config drift block | `config-drift-guard.sh` rejects settings.json edits that introduce `disableAllHooks` / `bypassPermissions` / silent `defaultMode` shifts | `PreToolUse` (Edit/Write/MultiEdit) | ~5ms |
-| Memory upkeep | `memory-review-offer.sh` surfaces a "Memory Roulette" review round for an overdue `~/.claude` memory (spawns the Python engine), capped at one offer per local day | `UserPromptSubmit` | ≤1 python spawn/day, no-op otherwise |
+| Memory upkeep | `memory-review-offer.sh` surfaces a "Memory Roulette" review round (spawns the Python engine), capped at one offer per local day. Offer priority: vocabulary defects (orphan/overbroad tags) → entry rounds (intake backlog deterministic, then 30d staleness) → tag backlog on quiet days (90d cycle) | `UserPromptSubmit` | ≤1 python spawn/day, no-op otherwise |
 | Memory base layer | `memory-base-floor.sh` injects the box-brain `MEMORY.md` router (the curated always-relevant floor) into every session whose active store isn't box-brain, so the floor is present regardless of cwd — the *base* of a base+scoped memory env | `SessionStart` | 1 read+jq at session start; silent at `$HOME` |
 | Handoff discovery | `handoff-index.sh` regenerates `<workspace>/.handoff_index` — every handoff across the labs' `.claude/handoffs/`, the tracked `claude/handoffs/` archive, and `~/.claude/handoffs/`, **grouped by scope** (cross-lab / per-lab / box / stale) read from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged | `SessionStart` | 1 `find`+`grep` sweep at session start; no-op off-workspace |
 
@@ -81,7 +81,7 @@ Re-enable with `./agent-harness.py install --apply`. This is narrower than
 | `hooks/syntax-check-touched.sh` | PostToolUse(Edit/Write) — narrow syntax verification |
 | `hooks/forbidden-files-guard.sh` | PreToolUse(Edit/Write) — block secret-path writes |
 | `hooks/config-drift-guard.sh` | PreToolUse(Edit/Write) — block settings weakening |
-| `hooks/memory-review-offer.sh` | UserPromptSubmit — offer a Memory Roulette round for an overdue memory, ≤1×/day |
+| `hooks/memory-review-offer.sh` | UserPromptSubmit — offer a Memory Roulette round (entry or tag-vocabulary), ≤1×/day |
 | `hooks/memory-base-floor.sh` | SessionStart — inject the box-brain MEMORY.md router as a base memory floor when the active store isn't box-brain; silent at `$HOME` |
 | `hooks/handoff-index.sh` | SessionStart — regenerate `<workspace>/.handoff_index` (all handoffs across labs + `~/.claude/handoffs/`, grouped by scope from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged); silent off a `.claude-workspace`-marked tree |
 | `hooks/memory-recall.sh` | PreToolUse — advisory tag-routed memory recall before a tool call; never denies, fails open |

@@ -21,7 +21,9 @@ from pathlib import Path
 LAB = Path(__file__).resolve().parents[2]
 GAME = LAB / "memory" / "_review_game.py"
 sys.path.insert(0, str(LAB / "memory"))
+sys.path.insert(0, str(LAB / "lib"))
 import _review_game as rg                                # noqa: E402
+import memory_surface as ms                              # noqa: E402
 
 MEM = """---
 name: rec-x
@@ -100,6 +102,62 @@ body
         txt = (memdir / "rec-y.md").read_text()
         self.assertIn("tags: [git, systemd]", txt)       # preserved, normalized
         self.assertIn("lastReviewed:", txt)
+
+
+TAGS_MD = """\
+# tags
+## tool
+- git — version control workflow on this box
+- orphantag — a tag that no memory carries anymore
+"""
+
+
+class TagRounds(unittest.TestCase):
+    """Pins for tag-mode Roulette (2026-06-11): vocabulary defects outrank entry rounds,
+    retire fails closed with carriers, keep/later gate via _tag_review.json."""
+
+    def setUp(self):
+        self.home, self.memdir = make_home()
+        (self.memdir / "rec-x.md").write_text(MEM)       # carries [git]
+        (self.memdir / "_tags.md").write_text(TAGS_MD)
+        ms.rebuild(self.memdir)
+
+    def test_orphan_outranks_entry_round(self):
+        out = run_game(self.home, "offer").stdout
+        self.assertIn("TAG ROULETTE", out)
+        self.assertIn("orphantag", out)
+        self.assertIn("ORPHAN", out)
+
+    def test_tag_keep_banks_and_entries_resume(self):
+        run_game(self.home, "tag-keep", "orphantag")
+        out = run_game(self.home, "offer").stdout
+        self.assertIn("MEMORY ROULETTE", out)            # entry round resumes
+        self.assertIn("rec-x", out)
+
+    def test_tag_later_snoozes(self):
+        run_game(self.home, "tag-later", "orphantag")
+        out = run_game(self.home, "offer").stdout
+        self.assertIn("MEMORY ROULETTE", out)
+
+    def test_tag_retire_refuses_with_carriers(self):
+        p = run_game(self.home, "tag-retire", "git")
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("carriers", p.stderr)
+        self.assertIn("git", (self.memdir / "_tags.md").read_text())
+
+    def test_tag_retire_orphan_succeeds(self):
+        p = run_game(self.home, "tag-retire", "orphantag")
+        self.assertEqual(p.returncode, 0)
+        self.assertNotIn("orphantag", (self.memdir / "_tags.md").read_text())
+        out = run_game(self.home, "offer").stdout
+        self.assertIn("MEMORY ROULETTE", out)            # defect cleared -> entry round
+
+    def test_quiet_day_offers_tag_backlog(self):
+        run_game(self.home, "tag-retire", "orphantag")   # clear the defect
+        run_game(self.home, "keep", "rec-x")             # clear the entry board
+        out = run_game(self.home, "offer").stdout
+        self.assertIn("TAG ROULETTE", out)               # never-reviewed normal tag
+        self.assertIn("`git`", out)
 
 
 class PressureMath(unittest.TestCase):
