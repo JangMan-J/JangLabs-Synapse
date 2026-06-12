@@ -116,6 +116,7 @@ SC-1 component-justification table — every shipped file, its subsystem, why it
 | `tests/memory_surface/test_write_triggers.py` | Test Suite | Write-time trigger derivation hook paths | This file |
 | `tests/memory_surface/test_probe_runner.py` | Test Suite | Probe runner harness for shadow/seat validation | This file |
 | `tests/memory_surface/test_write_hooks.sh` | Test Suite | Shell-level write-hook battery (WR-01): gate behavior proven end-to-end via stdin/exit codes | This file |
+| `tests/memory_surface/test_hooks_phase1.sh` | Test Suite | Shell battery pinning hook path-canonicalization regressions (false-deny class, 2026-06-02 review) | This file |
 | `tests/memory_surface/bench_recall.sh` | Test Suite | Recall latency benchmark; ≤55ms p95 gate mandatory after any hot-path change | This file |
 | `tests/memory_surface/run_shadow_validation.py` | Test Suite | Shadow-validation runner: compare recall output against reference answers | This file |
 | `tests/memory_surface/seat_probes.py` | Test Suite | Seat governance probes: machine-governed router seat behavior | This file |
