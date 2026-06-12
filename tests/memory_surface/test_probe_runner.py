@@ -473,14 +473,6 @@ class LiveShouldStaySilentProbes(unittest.TestCase):
                      "S5")
 
 
-# ---------------------------------------------------------------------------
-# Final summary printer (MVR demonstration gate record)
-# ---------------------------------------------------------------------------
-
-class _PrintSummaryOnSuccess(unittest.TestProgram):
-    """Wrap the standard runner to emit the one-line MVR PASS/FAIL after the run."""
-
-
 def _run_with_summary(mode_label: str) -> bool:
     """Run all probe tests, print a one-line PASS summary for the MVR gate record."""
     loader = unittest.TestLoader()

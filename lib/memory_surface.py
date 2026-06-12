@@ -505,8 +505,9 @@ def compile_trigger_index(grammar, memories_meta):
 
     Args:
         grammar: dict from parse_grammar_md() — {tag: {commands, paths, args, synonyms, ...}}
-        memories_meta: list of (stem, meta, body_text) tuples for all valid memories.
+        memories_meta: list of (stem, meta, name, description, body_text) tuples for all valid memories.
             meta is the parsed frontmatter metadata dict (includes tags, triggers if present).
+            name and description are the top-level frontmatter fields.
             body_text is the full file body used for D-29(b) fallback derivation.
 
     Returns (triggerIndex, recallVocab, routable_stems_set).
@@ -760,10 +761,10 @@ def _evidence_stats(tel_path):
     return len(session_days), max(span, 0.0)
 
 
-def _apply_score_delta(p, memdir, direction):
+def _apply_score_delta(p, direction):
     """Increment or clear declineCount in frontmatter (D-42).
 
-    MUST use generate_frontmatter(), NEVER _review_game.py's deprecated writer
+    MUST use generate_frontmatter(), NEVER the deprecated writer
     (which silently drops triggers: — Pitfall D).
     direction: 'demote' -> declineCount += 1; 'promote' -> declineCount = '0'.
     """
@@ -921,6 +922,9 @@ def maintenance(memdir, shadow=False, recheck=False):
         promote_thresh = cfg.get("promoteThreshold", 0.4)
         demote_thresh = cfg.get("demoteThreshold", 0.05)
         window_days = cfg.get("telemetryWindowDays", 30)
+        # IN-11: minEvidenceSessions counts distinct session-days (not calendar days).
+        # The companion key minEvidenceDays carries the calendar-days arm;
+        # the window is sessions OR days (either leg satisfies the guard).
         min_sessions = cfg.get("minEvidenceSessions", 10)
         min_days = cfg.get("minEvidenceDays", 30)
 
@@ -963,11 +967,11 @@ def maintenance(memdir, shadow=False, recheck=False):
             if rate >= promote_thresh:
                 promoted.append(stem)
                 if not shadow:
-                    _apply_score_delta(p, memdir, direction="promote")
+                    _apply_score_delta(p, direction="promote")
             elif rate <= demote_thresh:
                 demoted.append(stem)
                 if not shadow:
-                    _apply_score_delta(p, memdir, direction="demote")
+                    _apply_score_delta(p, direction="demote")
 
         summary = f"{len(demoted)} demoted, {len(promoted)} promoted"
         if not shadow:
@@ -1082,6 +1086,9 @@ def seats(memdir):
     try:
         cfg = load_config(memdir)
         window_days = cfg.get("telemetryWindowDays", 30)
+        # IN-11: minEvidenceSessions counts distinct session-days (not calendar days).
+        # The companion key minEvidenceDays carries the calendar-days arm;
+        # the window is sessions OR days (either leg satisfies the guard).
         min_sessions = cfg.get("minEvidenceSessions", 10)
         min_days = cfg.get("minEvidenceDays", 30)
         promote_thresh = cfg.get("promoteThreshold", 0.4)
@@ -1837,42 +1844,8 @@ def _empty_response(mode):
 TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
 
 
-def _match_paths(abspaths, by_path):
-    """Return list of (memory_id, trigger_type, matched_value, entry) for every byPath hit.
 
-    Applies path_tag_hits()-parity semantics (§7):
-    - /** trailing suffix: prefix match (abspath == prefix OR starts with prefix + '/')
-    - mid-** patterns: IGNORED (§7 sanctioned only as trailing /**)
-    - exact fnmatchcase otherwise
-
-    Patterns stored in by_path keys are already expanded (~ → home) by the compiler.
-    The entry's 'pattern' field preserves the original form.
-    """
-    hits = []
-    for stored_key, entries in by_path.items():
-        # Apply expansion to stored key (already expanded by compiler, but belt-and-suspenders)
-        p = _expand(stored_key)
-        matched = False
-        if p.endswith("/**"):
-            prefix = p[:-3]
-            for ap in abspaths:
-                if ap == prefix or ap.startswith(prefix + "/"):
-                    matched = True
-                    break
-        elif "**" in p:
-            continue   # mid-** is not supported (§7)
-        else:
-            for ap in abspaths:
-                if fnmatch.fnmatchcase(ap, p):
-                    matched = True
-                    break
-        if matched:
-            for entry in entries:
-                hits.append((entry, abspaths))
-    return hits
-
-
-def _score_tuples(tuples, mem, cfg, now, tier_weights):
+def _score_tuples(tuples, mem, now, tier_weights):
     """Compute score from firing tuples + type boost - stale/decline penalties (D-27).
 
     score = sum(tier_weights[tier] for distinct (tag, trigger_type) tuples)
@@ -1924,7 +1897,7 @@ def _render_tuples(tuples):
     return "; ".join(parts) if parts else "matched (no tuple)"
 
 
-def _meets_min_candidate_new(tuples, tier_weights):
+def _meets_min_candidate_new(tuples):
     """Surface gate: a memory surfaces only if ≥1 strong-tier tuple OR ≥2 tuples total.
 
     A single synonym-only (weak) match violates both conditions → SILENT (CORE-06/D-27).
@@ -1981,7 +1954,6 @@ def search(memdir, event, now=None):
     hits = {}
 
     def _add_hit(mid, tag, trigger_type, matched_value):
-        key = (tag, trigger_type)
         existing = hits.setdefault(mid, [])
         # Dedup by (tag, trigger_type) per memory
         if not any(t["tag"] == tag and t["trigger_type"] == trigger_type for t in existing):
@@ -2119,9 +2091,9 @@ def search(memdir, event, now=None):
         if mid not in all_mems:
             continue
         mem = all_mems[mid]
-        if not _meets_min_candidate_new(tuples, tw):
+        if not _meets_min_candidate_new(tuples):
             continue
-        score = _score_tuples(tuples, mem, cfg, now, tw)
+        score = _score_tuples(tuples, mem, now, tw)
         scored.append((score, tuples, mem))
 
     scored.sort(key=lambda x: (

@@ -263,8 +263,6 @@ class ReadSignal(unittest.TestCase):
         """Plant a fresh dedup mark for the given memory stem (simulates a recent recall fire)."""
         dd = self._mark_dir()
         dd.mkdir(parents=True, exist_ok=True)
-        safe = stem.translate(str.maketrans("", "", "".join(
-            c for c in stem if not (c.isalnum() or c in "._-"))))
         # Use the same sanitization the hook uses
         import re
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", stem)
