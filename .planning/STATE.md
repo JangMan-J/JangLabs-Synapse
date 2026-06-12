@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-06-12T20:32:40.108Z"
+last_updated: "2026-06-12T20:43:33.441Z"
 last_activity: 2026-06-12 -- Completed 04-01 (Roulette deletion + manifest re-derivation)
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
-  percent: 75
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 04 (reorganization-realignment) — EXECUTING
 Plan: 3 of 3 (04-01 complete)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-12 -- Completed 04-01 (Roulette deletion + manifest re-derivation)
 
 Progress: [████████░░] 80%
@@ -67,6 +67,7 @@ Progress: [████████░░] 80%
 | Phase 03-telemetry-self-curation P04 | 15min | 3 tasks | 4 files |
 | Phase 04-reorganization-realignment P01 | 18min | 2 tasks | 5 files |
 | Phase 04-reorganization-realignment P02 | 35 | 3 tasks | 8 files |
+| Phase 04 P03 | 2400 | - tasks | - files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [03-04] Evidence window for seat governance = maintenance pass standard (>=10 sessions OR >=30d span); pending block is the human-veto safety net
 - [04-01] MEMORY_INFRA = {"_grammar.md"}: _grammar.md is the only lab-sourced install-managed store artifact; _tags.md/_tag_links.md left as unmanaged legacy store data (removing _tags.md symlink would break validate — Pitfall 6)
 - [04-01] D-54 pattern: live symlink removed manually BEFORE git rm of source — harness iterates HOOKS_SRC.glob(*.sh) dynamically, so a deleted source can never self-clean its stale symlink
+- [Phase ?]: SC-1 table placed in README.md
+- [Phase ?]: D-55 real-demonstration discipline: verbatim four-step install/remove cycle proves symmetry with zero phantom entries; ORG-03 closed
+- [Phase ?]: CLAUDE.md.fragment realigned: trigger-index catalog routing replaces _tags.md+path-rules claim; automated maintenance replaces Roulette; _grammar.md replaces _tags.md in vocabulary references
 
 ### Pending Todos
 
@@ -134,6 +138,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T20:32:40.105Z
+Last session: 2026-06-12T20:43:33.437Z
 Stopped at: Completed 04-01-PLAN.md
 Resume file: None

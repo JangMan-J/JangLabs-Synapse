@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Trigger Grammar & Write-Time Intelligence** - Unified tags-as-triggers artifact, MVR gate, and a write pipeline that derives triggers, dedups, and places memories in the right store (completed 2026-06-12)
 - [x] **Phase 2: Routing Index & Live Recall Cutover** - Rebuildable routing index, near-free evidence-routed recall with explainable fires, contract tests + probes, and gated cutover from the old path (completed 2026-06-12)
 - [x] **Phase 3: Telemetry & Self-Curation** - Fire/read telemetry, automated maintenance pass with rare-critical floor, Roulette retirement, machine-governed base-floor seats (completed 2026-06-12)
-- [ ] **Phase 4: Reorganization & Realignment** - Subsystem boundaries, component re-justification, docs/reality realignment, install layout re-derived from the new core
+- [x] **Phase 4: Reorganization & Realignment** - Subsystem boundaries, component re-justification, docs/reality realignment, install layout re-derived from the new core (completed 2026-06-12)
 
 ## Phase Details
 
@@ -146,7 +146,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-03-PLAN.md — Docs realignment from the drift tables (README/CLAUDE.md/fragment/findings) + SC-1 component-justification table + D-55 verbatim install/status/remove demonstration
+- [x] 04-03-PLAN.md — Docs realignment from the drift tables (README/CLAUDE.md/fragment/findings) + SC-1 component-justification table + D-55 verbatim install/status/remove demonstration
 
 Notes: Sequential waves — the engine and hooks are LIVE via symlinks (one stateful box, no declared parallel-dispatch budget), docs must describe the post-surgery reality, and D-57 holds per wave: full suite green, p95 ≤55ms re-proven after read-path-adjacent changes. D-56: `memory/_grammar.md` and `memory/_tags.md` (another session's uncommitted work) are untouchable throughout — explicit-path staging only.
 
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
 | 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
-| 4. Reorganization & Realignment | 2/3 | In Progress|  |
+| 4. Reorganization & Realignment | 3/3 | Complete   | 2026-06-12 |
 
 ## Coverage
 
