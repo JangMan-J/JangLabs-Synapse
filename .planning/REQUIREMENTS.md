@@ -35,7 +35,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Reorganization
 
 - [x] **ORG-01**: The repo is restructured into clear subsystem boundaries (base harness / memory system / install tooling) with one source of truth each
-- [ ] **ORG-02**: Every component is re-justified against the working implementation; README, CLAUDE.md, fragment, and findings accurately describe what exists
+- [x] **ORG-02**: Every component is re-justified against the working implementation; README, CLAUDE.md, fragment, and findings accurately describe what exists
 - [x] **ORG-03**: The install layout (how files map into ~/.claude) is re-derived from the new core's needs; agent-harness.py remains the single idempotent entry point
 - [x] **ORG-04**: Memory writes route to the correct store by subject — the dark-memory mis-placement class is eliminated
 

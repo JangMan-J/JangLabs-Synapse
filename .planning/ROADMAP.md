@@ -142,7 +142,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02-PLAN.md — D-50 tag-links write-path excision in lockstep (engine + write-guard + catalog-refresh + tests, one plan) + D-51 dead-code sweep + p95 bench gate
+- [x] 04-02-PLAN.md — D-50 tag-links write-path excision in lockstep (engine + write-guard + catalog-refresh + tests, one plan) + D-51 dead-code sweep + p95 bench gate
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
 | 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
-| 4. Reorganization & Realignment | 1/3 | Executing | - |
+| 4. Reorganization & Realignment | 2/3 | In Progress|  |
 
 ## Coverage
 
