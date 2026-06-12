@@ -68,7 +68,25 @@ Notes: The old routing path stays live and untouched throughout this phase (no r
   4. Spec-derived contract tests pin the declared routing grammar, and live reference probes pass both directions: obvious-should-fire payloads fire, obvious-should-stay-silent payloads stay silent
   5. All ~140 existing store memories are routable under the new system at cutover (bulk trigger derivation or defined fallback), and the old routing path is removed only after the Phase 1 MVR checklist demonstrably passes — with no window where old memories are unreachable
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — triggerIndex compiler in rebuild() + routability report + mutation-consistency closure (grammar-aware refresh hook, fingerprint fix)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Staged evidence matcher (search-new) + tier scoring + inline evidence tuples, spec-first contract tests
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — 5+5 probe runner through the real hook + p95 benchmark harness + jq-reduction budget closure
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-04-PLAN.md — MVR gate demonstrations + one-commit flip + legacy path prune (removal steps 1–4)
+
+Notes: Sequential waves — all engine plans share `lib/memory_surface.py`, and the flip is gated on the full MVR demonstration record (D-30). The live hook stays on the legacy `search` until the Plan 02-04 flip commit; rollback is git revert + `.surface-disabled`.
 
 ### Phase 3: Telemetry & Self-Curation
 
@@ -108,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
-| 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
+| 2. Routing Index & Live Recall Cutover | 0/4 | Planned | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
@@ -127,3 +145,4 @@ All 20 v1 requirements mapped — no orphans, no duplicates.
 *Roadmap created: 2026-06-11*
 *Granularity: coarse (4 phases) — research's 7 fine phases consolidated along the data flow: write→derive (Phase 1), index→match→inject (Phase 2), telemetry→curation (Phase 3), reorganization (Phase 4)*
 *Phase 1 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file + hooks-last safety ordering per D-18)*
+*Phase 2 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file; MVR-gated flip last per D-30)*
