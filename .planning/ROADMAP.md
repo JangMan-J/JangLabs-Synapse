@@ -30,7 +30,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Saving a memory on the live box embeds its derived trigger patterns in frontmatter at save time, while the authoring model is in-context — never assigned later
   4. Saving a memory that overlaps an existing one is deduplicated/consolidated against the store before trigger derivation, so the store stays canonical
   5. A box-level memory written from a project-keyed session lands in the box-brain store — the dark-memory mis-placement class no longer reproduces
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — MVR gate checklist + unified grammar artifact (parser, schema validation, store symlink)
+- [ ] 01-02-PLAN.md — Write-time triggers in frontmatter + check-write enforcement (shape + specificity gates)
+- [ ] 01-03-PLAN.md — Dedup (advisory + backstop) + store-placement gate + write-context composite builder
+- [ ] 01-04-PLAN.md — Live hook deployment (widened detection) + walking-skeleton demonstration
 
 Notes: The old routing path stays live and untouched throughout this phase (no routing gap — removal is gated by the MVR checklist in Phase 2). The new grammar artifact coexists alongside the legacy `_tags.md`/`_tag_links.md` until cutover; clean slate for routing metadata is accepted by design.
 
@@ -78,7 +84,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trigger Grammar & Write-Time Intelligence | 0/TBD | Not started | - |
+| 1. Trigger Grammar & Write-Time Intelligence | 0/4 | Planned | - |
 | 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
@@ -97,3 +103,4 @@ All 20 v1 requirements mapped — no orphans, no duplicates.
 ---
 *Roadmap created: 2026-06-11*
 *Granularity: coarse (4 phases) — research's 7 fine phases consolidated along the data flow: write→derive (Phase 1), index→match→inject (Phase 2), telemetry→curation (Phase 3), reorganization (Phase 4)*
+*Phase 1 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file + hooks-last safety ordering per D-18)*
