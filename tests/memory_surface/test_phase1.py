@@ -53,12 +53,24 @@ TAG_LINKS_MD = """\
 """
 
 
-def _mem(name, desc, tags, block_list=False, extra=None):
+def _mem(name, desc, tags, block_list=False, extra=None, triggers=None):
     if block_list:
         tagblock = "  tags:\n" + "\n".join(f"    - {t}" for t in tags)
     else:
         tagblock = f"  tags: [{', '.join(tags)}]"
     extra_lines = "".join(f"\n  {k}: {v}" for k, v in (extra or {}).items())
+    # Default minimal valid triggers block (D-09: required for box-store writes).
+    # Tests that assert rc 0 on check_write need triggers; deny tests fire before triggers.
+    if triggers is None:
+        triggers_block = (
+            "\n  triggers:\n"
+            "    commands: [nvidia-smi]\n"
+            "    paths: []\n"
+            "    args: []\n"
+            "    synonyms: []"
+        )
+    else:
+        triggers_block = ""
     return (
         f"---\n"
         f"name: {name}\n"
@@ -67,7 +79,7 @@ def _mem(name, desc, tags, block_list=False, extra=None):
         f"  node_type: memory\n"
         f"  type: feedback\n"
         f"{tagblock}\n"
-        f"  originSessionId: TEST{extra_lines}\n"
+        f"  originSessionId: TEST{extra_lines}{triggers_block}\n"
         f"---\n\n"
         f"Body of {name}.\n"
     )

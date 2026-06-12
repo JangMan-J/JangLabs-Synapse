@@ -27,13 +27,34 @@ from pathlib import Path
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
-META_ORDER = ["node_type", "type", "tags", "originSessionId",
+META_ORDER = ["node_type", "type", "tags", "triggers", "originSessionId",
               "lastReviewed", "declineCount", "nextEligible"]
 FACET_HEADS = ("domain", "tool", "pattern")
 
 # ---------------------------------------------------------------- grammar constants (Plan 01-01)
 PLACEMENTS = ("box", "project", "either")
 GRAMMAR_FIELDS = ("gloss", "placement", "commands", "paths", "args", "synonyms", "related")
+
+# ---------------------------------------------------------------- triggers constants (Plan 01-02)
+TRIGGER_FIELDS = ("commands", "paths", "args", "synonyms")
+BROAD_GLOBS = {"*", "**", "/**", "~/**"}
+TRIGGER_SCHEMA_HINT = """\
+triggers:
+  commands: [tool-name, other-command]   # observable CLI commands
+  paths: [~/.config/app/**]              # paths touched/read/written
+  args: [domain-specific-arg]            # non-generic subcommand or argument
+  synonyms: [alternative-name]           # query-token aliases (optional)
+
+At least one behavioral evidence field (commands, paths, or args) must be non-empty.
+Generic verbs alone (restart, start, stop, status, enable, disable, etc.) do not qualify.
+Overly-broad globs alone (~/** or **) do not qualify.
+Example:
+  triggers:
+    commands: [wpctl, pw-record]
+    paths: [~/.config/pipewire/**]
+    args: [set-volume]
+    synonyms: [wireplumber]
+"""
 
 
 # ---------------------------------------------------------------- store location
@@ -100,6 +121,33 @@ def parse_frontmatter(text):
                         meta["tags"] = tags
                         i = j
                         continue
+                    if k == "triggers" and not v:
+                        # Peek-forward: consume sub-keys at a DEEPER indent level
+                        # (4-space indent for sub-keys vs 2-space for metadata children).
+                        # Unknown sub-keys are kept in the dict — validation rejects them.
+                        triggers = {}
+                        j = i + 1
+                        while j < len(lines):
+                            sub = lines[j]
+                            if not sub.strip():
+                                j += 1
+                                continue
+                            # A deeper-indented line (starts with 4 spaces or a tab beyond
+                            # the metadata-child 2-space level)
+                            if sub[:4] == "    " or (sub[:1] in (" ", "\t") and
+                                                     len(sub) - len(sub.lstrip()) > 2):
+                                ss = sub.strip()
+                                if ":" in ss:
+                                    sk, sv = ss.split(":", 1)
+                                    sk, sv = sk.strip(), sv.strip()
+                                    if sk:
+                                        triggers[sk] = _parse_flow_tags(sv) if sv else []
+                                j += 1
+                            else:
+                                break
+                        meta["triggers"] = triggers
+                        i = j
+                        continue
                     meta[k] = v
             i += 1
             continue
@@ -133,6 +181,14 @@ def generate_frontmatter(top, meta, body):
         if k == "tags":
             tv = v if isinstance(v, list) else _parse_flow_tags(str(v))
             out.append(f"  tags: [{', '.join(tv)}]")
+        elif k == "triggers" and isinstance(v, dict):
+            out.append("  triggers:")
+            for tf in TRIGGER_FIELDS:
+                if tf in v and v[tf]:
+                    vals = v[tf] if isinstance(v[tf], list) else [str(v[tf])]
+                    out.append(f"    {tf}: [{', '.join(vals)}]")
+                elif tf in v:
+                    out.append(f"    {tf}: []")
         else:
             out.append(f"  {k}: {v}")
 
@@ -459,6 +515,112 @@ def rebuild(memdir):
 
 
 # ---------------------------------------------------------------- check-write
+def _check_triggers(triggers):
+    """Validate a triggers dict for shape and specificity (D-09, D-10).
+
+    Returns (rc, reason):
+      rc 0 — triggers are valid
+      rc 2 — deny; reason string includes TRIGGER_SCHEMA_HINT
+
+    Checks in order:
+      1. Must be a dict of string lists (shape)
+      2. All field names must be in TRIGGER_FIELDS (D-04 vocabulary)
+      3. At least one behavioral evidence field (commands/paths/args) non-empty (D-09)
+      4. Specificity gate: generic-only commands with no specific args/paths → deny (D-10)
+    """
+    if not isinstance(triggers, dict):
+        return 2, (
+            "triggers must be a dict (the 'triggers:' block under metadata:).\n"
+            + TRIGGER_SCHEMA_HINT
+        )
+    # Unknown field names check (D-04 vocabulary)
+    unknown = [k for k in triggers if k not in TRIGGER_FIELDS]
+    if unknown:
+        return 2, (
+            f"triggers block has unknown field(s): {', '.join(sorted(unknown))}. "
+            f"Allowed fields are: {', '.join(TRIGGER_FIELDS)}.\n"
+            + TRIGGER_SCHEMA_HINT
+        )
+    # Field values must be lists of strings
+    for field in TRIGGER_FIELDS:
+        val = triggers.get(field, [])
+        if not isinstance(val, list):
+            return 2, (
+                f"triggers.{field} must be a list of strings (got {type(val).__name__}).\n"
+                + TRIGGER_SCHEMA_HINT
+            )
+        for item in val:
+            if not isinstance(item, str):
+                return 2, (
+                    f"triggers.{field} must contain only strings.\n"
+                    + TRIGGER_SCHEMA_HINT
+                )
+    # Evidence requirement: at least one of commands/paths/args must be non-empty
+    cmds = [c for c in triggers.get("commands", []) if c]
+    paths = [p for p in triggers.get("paths", []) if p]
+    args = [a for a in triggers.get("args", []) if a]
+    if not cmds and not paths and not args:
+        return 2, (
+            "triggers block has no behavioral evidence: commands, paths, and args are all "
+            "empty. At least one must be non-empty (synonyms alone do not qualify — "
+            "a memory with no observable behavioral trigger cannot be routed).\n"
+            + TRIGGER_SCHEMA_HINT
+        )
+    # Specificity gate (D-10): generic-only commands with no qualifying paths/args
+    home = str(Path.home())
+    non_broad_paths = []
+    for p in paths:
+        # Expand ~ for comparison
+        expanded = home + p[1:] if p.startswith("~") else p
+        # A path is non-broad if it is NOT in BROAD_GLOBS (after normalization)
+        norm = p.rstrip("/")
+        if norm not in BROAD_GLOBS and expanded.rstrip("/") not in BROAD_GLOBS:
+            non_broad_paths.append(p)
+    if cmds and not args and not non_broad_paths:
+        all_generic = all(c in GENERIC_VERBS for c in cmds)
+        if all_generic:
+            return 2, (
+                f"triggers.commands contains only generic verbs "
+                f"({', '.join(sorted(cmds))}) with no specific args or "
+                f"domain-specific paths. Generic verbs provide no routing signal — "
+                f"add at least one domain-specific command, arg, or path.\n"
+                + TRIGGER_SCHEMA_HINT
+            )
+    # Broad-glob-only: the ONLY behavioral evidence is broad globs
+    if not cmds and not args and paths and not non_broad_paths:
+        return 2, (
+            f"triggers.paths consists only of overly-broad glob(s) "
+            f"({', '.join(paths)}) that match the entire home directory (no domain "
+            f"signal). Use a specific path pattern (e.g. ~/.config/pipewire/**).\n"
+            + TRIGGER_SCHEMA_HINT
+        )
+    return 0, ""
+
+
+def _classify_target(target, memdir):
+    """Classify the write target to determine which checks to apply.
+
+    Returns 'box' when the write targets the box-brain store (or target is None),
+    'other' otherwise.
+
+    Plan 01-03 extends 'other' into project-store / repo-memory branches.
+    """
+    if target is None:
+        return "box"
+    # Lexically normalize both paths for prefix comparison
+    try:
+        norm_target = os.path.realpath(os.path.normpath(os.path.expanduser(target)))
+    except (TypeError, ValueError):
+        return "other"
+    try:
+        norm_memdir = os.path.realpath(os.path.normpath(str(memdir)))
+    except (TypeError, ValueError):
+        return "other"
+    if norm_target == norm_memdir or norm_target.startswith(norm_memdir + os.sep):
+        return "box"
+    return "other"
+
+
 def _closest(tag, active, n=3):
     def score(a):
         if a.startswith(tag[:3]) or tag.startswith(a[:3]):
@@ -469,13 +631,21 @@ def _closest(tag, active, n=3):
                                  key=lambda x: x[1], reverse=True)[:n]]
 
 
-def check_write(memdir, content):
+def check_write(memdir, content, target=None):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
+    # Only apply structured checks when content has YAML frontmatter (---...---).
+    # Content without frontmatter is not a memory file — fail open (existing behavior).
+    has_frontmatter = bool(FRONTMATTER_RE.match(content))
     top, meta, _ = parse_frontmatter(content)
     if "tags" in top:                                  # tags MUST nest under metadata: else they
         return 2, ("memory tags must be nested under 'metadata:' — found a top-level 'tags' key; "
                    "move it under the metadata: block so the tags are validated.")
+    # triggers must also nest under metadata: (parity with top-level tags: rejection)
+    if "triggers" in top:
+        return 2, ("memory triggers must be nested under 'metadata:' — found a top-level "
+                   "'triggers' key; move it under the metadata: block.\n"
+                   + TRIGGER_SCHEMA_HINT)
     mtags = meta.get("tags", []) or []
     for t in mtags:
         if not TAG_RE.match(t):
@@ -489,6 +659,21 @@ def check_write(memdir, content):
         close = _closest(t, active)
         hint = f"; closest active: {', '.join(close)}" if close else ""
         return 2, f"memory tag '{t}' is {why}{hint}. Add it to _tags.md first if it is genuinely new."
+    # Triggers validation for box-store writes (D-09): only when content has frontmatter
+    # (a file with no frontmatter is not a structured memory — fail open).
+    if has_frontmatter:
+        store_class = _classify_target(target, memdir)
+        if store_class == "box":
+            triggers = meta.get("triggers")
+            if triggers is None:
+                return 2, (
+                    "box-store memory write requires a 'triggers:' block under metadata: "
+                    "(D-09: triggers must be embedded at write time).\n"
+                    + TRIGGER_SCHEMA_HINT
+                )
+            rc, reason = _check_triggers(triggers)
+            if rc:
+                return rc, reason
     return 0, ""
 
 
@@ -1037,7 +1222,7 @@ def _arg(flag, default=None):
 
 
 VALUE_FLAGS = {"--memory-dir", "--reason", "--description", "--event",
-               "--content-file", "--query-id", "--facet"}
+               "--content-file", "--query-id", "--facet", "--target"}
 
 
 def _positionals():
@@ -1082,7 +1267,7 @@ def main():
     if cmd == "check-write":
         cf = _arg("--content-file")
         content = Path(cf).read_text() if cf else sys.stdin.read()
-        rc, msg = check_write(memdir, content)
+        rc, msg = check_write(memdir, content, target=_arg("--target"))
         if rc:
             print(msg)
         return rc
