@@ -268,7 +268,7 @@ Three subsystems, each with one source of truth:
 - `hooks/memory-catalog-refresh.sh` (PostToolUse) — catalog rebuild + telemetry logging
 - `lib/memory_surface.py` — single-file engine; the implementation source of truth
 - `memory/_grammar.md` — vocabulary + trigger-spec schema (lab-authoritative; install-managed symlink)
-- `memory/_tags.md` — tag vocabulary (lab-authoritative; install-managed symlink)
+- `memory/_tags.md` — tag vocabulary (lab-authoritative; existing store symlink left in place but no longer install-managed — ORG-03)
 - `memory/_tag_links.md` — legacy data (inert since Phase 4, D-50; not managed by install)
 - Source of truth: hook files (live via symlinks), `lib/memory_surface.py`, `memory/_grammar.md`
 

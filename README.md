@@ -66,6 +66,13 @@ added into an existing matcher block, and a command already registered is never
 duplicated. Only the `hooks` block of `settings.json` is ever touched — `permissions`
 stays the user's.
 
+Memory-store linking: install manages only `_grammar.md` (`MEMORY_INFRA`, ORG-03);
+an existing `_tags.md` symlink is left in place but never created, listed, or removed.
+On a **fresh box** the store therefore starts without `_tags.md` even though
+`validate`/`check-write` read it — bootstrap by writing the store's `_tags.md` directly
+(the write guard's missing-file allow, `[ -e "$abs" ] || exit 0`, permits the first
+write that creates the vocabulary).
+
 To disable **only** the base memory floor (not the whole harness, not every memory
 hook), run `./fix-memory-plug.sh` — a narrow, reversible break-glass that removes just
 the `memory-base-floor.sh` SessionStart entry and its symlink (`-n` to dry-run first).
@@ -92,7 +99,7 @@ SC-1 component-justification table — every shipped file, its subsystem, why it
 | `hooks/memory-catalog-refresh.sh` | Memory System | Rebuilds `_memory_catalog.json` after a store write; logs fire/read telemetry for automated curation | This file |
 | `lib/memory_surface.py` | Memory Engine | Single-file engine for all memory operations: trigger-index routing, catalog rebuild, write-time context/validation, telemetry-driven maintenance, seat governance | This file |
 | `memory/_grammar.md` | Store (data) | Grammar vocabulary + trigger-spec schema for the memory system; lab-sourced, install-managed (linked into the box-brain store by `agent-harness.py`); the canonical vocabulary source | This file (lab-authoritative) |
-| `memory/_tags.md` | Store (data) | Tag vocabulary; lab-sourced, install-managed; write-guard validates tags against this file; accumulates session-authored tags | This file (lab-authoritative) |
+| `memory/_tags.md` | Store (data) | Tag vocabulary; lab-authoritative backing file — the existing store symlink is left in place but no longer install-managed (ORG-03); write-guard validates tags against this file; accumulates session-authored tags | This file (lab-authoritative) |
 | `memory/_tag_links.md` | Store (data) | Legacy synonym/path-tag graph — inert since Phase 4 (D-50 excised all write-path callers); retained as store data, not removed, because the store is data and its history is real | Store (unmanaged, inert) |
 | `agent-harness.py` | Install Tooling | Single idempotent entry point for install/remove/status; dry-run by default; per-run timestamped backups; never touches permissions | This file |
 | `CLAUDE.md.fragment` | Install Tooling | Source for the `# --- begin/end Claude-Lab harness fragment ---` block in `~/.claude/CLAUDE.md`; deployed by `install --apply`; the fragment is NOT live until applied | This file |
