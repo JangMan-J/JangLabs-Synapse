@@ -17,7 +17,7 @@ system. See `handoffs/2026-06-01-memory-surfacing-build-plan.md` for the plan.
   `memory-catalog-refresh.sh` uses). The JSON `{"decision":"block","reason":...}` form would
   stop the agentic loop, but no on-box hook uses it — we stay on the proven exit-2 mechanism.
 - **`UserPromptSubmit`** injects context via plain stdout (what `system-fingerprint.sh` /
-  `lab-scope.sh` / `memory-review-offer.sh` do).
+  `lab-scope.sh` do).
 
 ## memory_surface.py interface quirks the hooks depend on
 
