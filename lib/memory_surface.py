@@ -487,7 +487,7 @@ def _memory_files(memdir):
 
 def fingerprint(memdir):
     h = hashlib.sha256()
-    for name in ("_tags.md", "_tag_links.md"):
+    for name in ("_tags.md", "_tag_links.md", "_grammar.md"):   # _grammar.md added (Pitfall 6)
         p = memdir / name
         h.update(f"{name}:{p.stat().st_mtime_ns if p.exists() else 0}\0".encode())
     for p in _memory_files(memdir):
@@ -504,13 +504,207 @@ def write_atomic(path, text):
     os.replace(tmp, path)
 
 
+# ---------------------------------------------------------------- trigger-index compiler (Plan 02-01)
+
+# Tokens extracted from body text for D-29(b) mechanical fallback.
+# Regex for backtick-quoted command tokens.
+_BACKTICK_RE = re.compile(r"`([^`]+)`")
+# Regex for path-like tokens (starts with ~ or /).
+_PATHLIKE_RE = re.compile(r"(?:~|/)[A-Za-z0-9._/-]{3,}")
+# Inline stopwords for derived-token noise filter (generic tool names that appear in
+# nearly every memory body and carry no routing signal beyond GENERIC_BASH/GENERIC_VERBS).
+_DERIVED_STOPWORDS = frozenset((
+    "sudo", "doas", "pkexec", "env",    # privilege/runner
+    "sh", "bash", "zsh", "fish",        # shells
+    "python", "python3", "python2",     # interpreters
+    "make", "cmake", "ninja",           # build tools
+    "true", "false", "echo", "printf",  # builtins
+))
+# Token validity pattern: must look like a real command/binary name.
+_TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{2,31}$")
+
+
+def derive_fallback_triggers(name, description, body):
+    """D-29(b): extract concrete routing tokens from memory name/description/body text.
+
+    Returns {"commands": [...], "paths": [...]} — sorted, deterministic, capped:
+    - ≤6 commands, ≤4 paths
+    - command tokens: backtick-quoted tokens matching _TOKEN_RE, excluding GENERIC_BASH,
+      GENERIC_VERBS, _DERIVED_STOPWORDS
+    - path tokens: path-like strings (starting with ~ or /) from body and description
+    """
+    combined = "\n".join(filter(None, [name, description, body]))
+
+    # Extract backtick-quoted command tokens
+    cmd_candidates = set()
+    for tok in _BACKTICK_RE.findall(combined):
+        tok = tok.strip()
+        if not _TOKEN_RE.match(tok):
+            continue
+        if tok in GENERIC_BASH or tok in GENERIC_VERBS or tok in _DERIVED_STOPWORDS:
+            continue
+        cmd_candidates.add(tok)
+
+    # Extract path-like tokens
+    path_candidates = set()
+    for tok in _PATHLIKE_RE.findall(combined):
+        tok = tok.rstrip("/.,;)")  # strip trailing punctuation
+        if len(tok) >= 5:         # must be a non-trivial path
+            path_candidates.add(tok)
+
+    return {
+        "commands": sorted(cmd_candidates)[:6],
+        "paths": sorted(path_candidates)[:4],
+    }
+
+
+def compile_trigger_index(grammar, memories_meta):
+    """Build the triggerIndex inverted tables from grammar + per-memory triggers (D-21/D-25).
+
+    Args:
+        grammar: dict from parse_grammar_md() — {tag: {commands, paths, args, synonyms, ...}}
+        memories_meta: list of (stem, meta, body_text) tuples for all valid memories.
+            meta is the parsed frontmatter metadata dict (includes tags, triggers if present).
+            body_text is the full file body used for D-29(b) fallback derivation.
+
+    Returns (triggerIndex, recallVocab, routable_stems_set).
+
+    triggerIndex shape:
+        {byCommand: {cmd: [entry, ...]}, byPath: {expanded_path: [entry, ...]},
+         byArg: {arg: [entry, ...]}, bySynonym: {syn: [entry, ...]},
+         byMemoryId: {stem: [entry, ...]}}
+    Each entry: {source: "tag"|"memory"|"memory-derived", id, trigger_type, pattern}
+
+    recallVocab shape:
+        {active: [grammar tag names], aliases: {synonym: tag}}
+    """
+    by_command = {}
+    by_path = {}
+    by_arg = {}
+    by_synonym = {}
+    by_memory_id = {}
+
+    def _add(bucket, key, entry):
+        bucket.setdefault(key, []).append(entry)
+
+    # Compile grammar-level entries (D-21, source="tag")
+    for tag, spec in grammar.items():
+        for cmd in sorted(spec.get("commands", [])):
+            if cmd:
+                e = {"source": "tag", "id": tag, "trigger_type": "command", "pattern": cmd}
+                _add(by_command, cmd, e)
+        for syn in sorted(spec.get("synonyms", [])):
+            if syn:
+                e = {"source": "tag", "id": tag, "trigger_type": "synonym", "pattern": syn}
+                _add(by_synonym, syn, e)
+        for arg in sorted(spec.get("args", [])):
+            if arg:
+                e = {"source": "tag", "id": tag, "trigger_type": "arg", "pattern": arg}
+                _add(by_arg, arg, e)
+        for pat in sorted(spec.get("paths", [])):
+            if pat:
+                expanded = _expand(pat)
+                e = {"source": "tag", "id": tag, "trigger_type": "path", "pattern": pat}
+                _add(by_path, expanded, e)
+
+    # Grammar tag set for coverage check
+    grammar_tags = set(grammar.keys())
+
+    # Compile per-memory entries (D-25, source="memory" or "memory-derived")
+    for stem, meta, name, description, body_text in memories_meta:
+        tags = meta.get("tags", []) or []
+        has_grammar_coverage = any(t in grammar_tags for t in tags)
+        triggers = meta.get("triggers", None)
+
+        if triggers is not None:
+            # Memory has explicit triggers: block — fold into index (D-25, source="memory")
+            mem_entries = []
+            for cmd in sorted(triggers.get("commands", []) or []):
+                if cmd:
+                    e = {"source": "memory", "id": stem, "trigger_type": "command", "pattern": cmd}
+                    _add(by_command, cmd, e)
+                    mem_entries.append(e)
+            for syn in sorted(triggers.get("synonyms", []) or []):
+                if syn:
+                    e = {"source": "memory", "id": stem, "trigger_type": "synonym", "pattern": syn}
+                    _add(by_synonym, syn, e)
+                    mem_entries.append(e)
+            for arg in sorted(triggers.get("args", []) or []):
+                if arg:
+                    e = {"source": "memory", "id": stem, "trigger_type": "arg", "pattern": arg}
+                    _add(by_arg, arg, e)
+                    mem_entries.append(e)
+            for pat in sorted(triggers.get("paths", []) or []):
+                if pat:
+                    expanded = _expand(pat)
+                    e = {"source": "memory", "id": stem, "trigger_type": "path", "pattern": pat}
+                    _add(by_path, expanded, e)
+                    mem_entries.append(e)
+            if mem_entries:
+                by_memory_id[stem] = sorted(mem_entries,
+                                             key=lambda e: (e["trigger_type"], e["pattern"]))
+
+        elif not has_grammar_coverage:
+            # No grammar coverage, no triggers: → D-29(b) mechanical fallback
+            derived = derive_fallback_triggers(name, description, body_text)
+            derived_entries = []
+            for cmd in derived.get("commands", []):
+                e = {"source": "memory-derived", "id": stem, "trigger_type": "command",
+                     "pattern": cmd}
+                _add(by_command, cmd, e)
+                derived_entries.append(e)
+            for pat in derived.get("paths", []):
+                expanded = _expand(pat)
+                e = {"source": "memory-derived", "id": stem, "trigger_type": "path",
+                     "pattern": pat}
+                _add(by_path, expanded, e)
+                derived_entries.append(e)
+            if derived_entries:
+                by_memory_id[stem] = sorted(derived_entries,
+                                             key=lambda e: (e["trigger_type"], e["pattern"]))
+
+    # Build recallVocab (D-21)
+    aliases = {}
+    for tag, spec in grammar.items():
+        for syn in (spec.get("synonyms", []) or []):
+            if syn:
+                aliases[syn] = tag
+
+    recall_vocab = {
+        "active": sorted(grammar_tags),
+        "aliases": aliases,
+    }
+
+    trigger_index = {
+        "byCommand": by_command,
+        "byPath": by_path,
+        "byArg": by_arg,
+        "bySynonym": by_synonym,
+        "byMemoryId": by_memory_id,
+    }
+
+    # Compute routable stems
+    routable = set()
+    for stem, meta, name, description, body_text in memories_meta:
+        tags = meta.get("tags", []) or []
+        if any(t in grammar_tags for t in tags):
+            routable.add(stem)  # D-29(a): tag-level grammar coverage
+        elif stem in by_memory_id:
+            routable.add(stem)  # D-29(b): has derived or explicit entries
+
+    return trigger_index, recall_vocab, routable
+
+
 def rebuild(memdir):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
     smap = synonym_map(parse_tag_links(memdir / "_tag_links.md")["synonyms"])
     memories, invalid, tag_index = [], [], {}
+    # Collect per-memory metadata tuples for the trigger-index compiler
+    memories_meta = []   # (stem, meta, name, description, body_text)
     for p in _memory_files(memdir):
-        top, meta, _ = parse_frontmatter(p.read_text())
+        raw = p.read_text()
+        top, meta, body = parse_frontmatter(raw)
         mtags = meta.get("tags", []) or []
         bad = [t for t in mtags if t not in active]
         if bad:
@@ -518,19 +712,36 @@ def rebuild(memdir):
             continue
         canon = sorted({smap.get(t, t) for t in mtags})
         desc = (top.get("description", "") or "").strip().strip('"').strip("'")
+        name = top.get("name", p.stem)
         try:
             decline = int(str(meta.get("declineCount", 0)).strip() or 0)
         except ValueError:
             decline = 0
         memories.append({
             "id": p.stem, "file": p.name, "path": str(p),
-            "name": top.get("name", p.stem), "description": desc,
+            "name": name, "description": desc,
             "type": meta.get("type", ""), "tags": mtags, "canonicalTags": canon,
             "lastReviewed": (meta.get("lastReviewed", "") or "").strip(),
             "declineCount": decline,
         })
+        memories_meta.append((p.stem, meta, name, desc, body))
         for t in canon:
             tag_index.setdefault(t, []).append(p.stem)
+
+    # Compile trigger index from grammar + per-memory triggers + mechanical fallback (D-21/D-25/D-29)
+    grammar = parse_grammar_md(memdir / "_grammar.md")   # {} if missing (fail-open)
+    trigger_index, recall_vocab, routable_ids = compile_trigger_index(grammar, memories_meta)
+
+    # Routability report (D-23)
+    all_valid_ids = [m["id"] for m in memories]
+    unroutable = sorted([mid for mid in all_valid_ids if mid not in routable_ids])
+    if unroutable:
+        print(f"UNROUTABLE ({len(unroutable)}): {', '.join(unroutable)}", file=sys.stderr)
+    routability_report = {
+        "unroutableCount": len(unroutable),
+        "unroutableIds": unroutable,
+    }
+
     catalog = {
         "schemaVersion": 1,
         "sourceFingerprint": fingerprint(memdir),
@@ -540,6 +751,10 @@ def rebuild(memdir):
         "memories": memories,
         "tagToMemoryIds": tag_index,
         "invalidMemories": invalid,
+        # Phase 2 additions (additive — D-30 no dark window)
+        "triggerIndex": trigger_index,
+        "recallVocab": recall_vocab,
+        "routabilityReport": routability_report,
     }
     write_atomic(memdir / "_memory_catalog.json",
                  json.dumps(catalog, indent=1, ensure_ascii=False) + "\n")
