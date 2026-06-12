@@ -85,22 +85,17 @@ maintains metadata.**
 - ✓ Tags-as-triggers grammar artifact + write-time trigger derivation, dedup, and store placement — Validated in Phase 1: Trigger Grammar & Write-Time Intelligence (2026-06-12)
 - ✓ Rebuildable trigger-routing index (`triggerIndex` in catalog), evidence-routed recall with inline `←` tuples, ≤55ms p95 (operator-recalibrated), contract tests + 5+5 live probes, legacy path pruned at the MVR-gated flip (commit 392f351) — Validated in Phase 2: Routing Index & Live Recall Cutover (2026-06-12)
 - ✓ Telemetry-driven self-curation: fire/read/session telemetry, evidence-guarded maintenance pass (≥10 session-days or ≥30d before mutations), Roulette retired after shadow validation, router seats machine-governed with probe-proof + pending-change blocks — Validated in Phase 3: Telemetry & Self-Curation (2026-06-12)
+- ✓ Reorganization & realignment: Roulette code deleted (symlink-first), `_tag_links.md` write path excised in lockstep, dead code swept, all four prose docs drift-corrected, SC-1 component-justification table, install manifest re-derived (MEMORY_INFRA={_grammar.md}) with demonstrated symmetric cycle — v1.0 (Phase 4, 2026-06-12)
 
 ### Active
 
 <!-- Current scope. Building toward these. Hypotheses until shipped. -->
 
-- [x] Reimagined tag routing core implementing the six-principle philosophy (Phases 1–2 complete; live since the 2026-06-12 flip)
-- [x] Tags-as-triggers: vocabulary, path rules, and tag links unified into one artifact (Phase 1)
-- [x] Write-time intelligence pipeline: trigger derivation at memory-save time (Phase 1)
-- [x] Read path as precomputed-index lookup, near-free per tool call (Phase 2)
-- [x] Index as build artifact: full rebuild from store contents at any time (Phase 2)
-- [x] Telemetry-driven self-curation (promotion/demotion/decay); zero human curation (Phase 3 — evidence-guarded maintenance pass live on SessionStart cadence)
-- [x] Memory Roulette retired as human ritual (automated maintenance pass replaces it) (Phase 3 — D-45 shadow-validated, offer hook deregistered)
-- [x] Repo reorganized into clear subsystem boundaries (base harness / memory system / install tooling) (Phase 4)
-- [x] Prune and consolidate: every component re-justified against the working implementation (Phase 4 — SC-1 table in README; Roulette + legacy write-path code deleted)
-- [x] Docs/reality realignment: README, CLAUDE.md, fragment, findings describe what actually exists (Phase 4 — drift-table-driven; corrected fragment deployed live)
-- [x] Install-layout rework: how files map into ~/.claude re-derived from the new core's needs (Phase 4 — MEMORY_INFRA={_grammar.md}; D-55 symmetric cycle demonstrated)
+<!-- v1.0 shipped 2026-06-12 — everything below moved to Validated. Fresh Active list for the next milestone: -->
+
+- [ ] Read-signal proxy validated against action-changed once real telemetry accrues (evidence guard releases mutations at ≥10 session-days or ≥30d — first real curation data ~2 weeks out)
+- [ ] Observe the self-curation loop's first live maintenance mutations and seat proposals; tune thresholds from evidence
+- [ ] Consider unifying the dual write-gate vocabulary (`_tags.md` for memory tags, `_grammar.md` for routing) into the grammar — deferred design question surfaced by the phase-4 docs audit
 
 ### Out of Scope
 
@@ -139,6 +134,8 @@ maintains metadata.**
 - Design history lives in `findings/memory-surfacing.md` and
   `handoffs/2026-06-01-memory-surfacing-build-plan.md` (tracked design-record archive).
 
+**Shipped state (v1.0, 2026-06-12):** ~5,900-line stdlib-Python engine (`lib/memory_surface.py`), 12 live hooks, 354 pytest + 46 shell-battery tests green, recall p95 48–54ms vs ≤55ms gate, 146 memories routable (0 unroutable), telemetry accruing toward the curation evidence window. 133 commits, 88 files, +22,667/−1,466 over ~15 hours.
+
 ## Constraints
 
 - **Cost model**: Maximum punch per pound — the final form delivers efficiency
@@ -160,15 +157,19 @@ maintains metadata.**
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Initiate GSD management for this lab | Direction drifted twice; no persistent intent statement survived across sessions | — Pending |
+| Initiate GSD management for this lab | Direction drifted twice; no persistent intent statement survived across sessions | ✓ Good — v1.0 shipped in 2 days without direction drift |
 | Rename project to Synapse; `[Method]`/`[Fumble]` → `[Rewire]`/`[Misfire]` | The lab never had a real name; identity renamed across repo, store, taxonomy, and workspace at initiation | ✓ Good |
-| Routing-led sequencing | Design the new routing core first; the reorganization falls out of what the core needs | — Pending |
-| Tags-as-triggers paradigm | Unify vocabulary/rules/links into one artifact; makes orphan tags structurally impossible | — Pending |
-| Write-time intelligence, read-time lookup | Cost asymmetry: writes are rare and model-attended; reads happen per tool call | — Pending |
+| Routing-led sequencing | Design the new routing core first; the reorganization falls out of what the core needs | ✓ Good — phase 4's reorg derived cleanly from the shipped core |
+| Tags-as-triggers paradigm | Unify vocabulary/rules/links into one artifact; makes orphan tags structurally impossible | ✓ Good — 146 memories routable, 0 unroutable, fires self-explain |
+| Write-time intelligence, read-time lookup | Cost asymmetry: writes are rare and model-attended; reads happen per tool call | ✓ Good — read path p95 48–54ms incl. telemetry |
 | Index = rebuildable build artifact | Eliminates migration burden forever; "clean slate" becomes a standing property | — Pending |
 | Zero human curation; telemetry-driven self-curation | The Roulette treadmill doesn't scale and contradicts the lab's automation ethos | — Pending |
 | Clean slate for routing metadata | Existing tags/vocabulary/catalogs need not migrate losslessly | — Pending |
 | Keep tags paradigm (no wholesale replacement) | The idea was right; the implementation sprawled — reimagine, don't replace | — Pending |
+
+| p95 gate recalibrated 50→55ms (operator-approved) | Original constant from stale baseline; live legacy measured 52–59ms; new path 48–54ms | ✓ Good — gate honest and demonstrable |
+| Minimum-evidence guard on curation (≥10 session-days or ≥30d) | First live pass demoted 22 memories on hours-old telemetry — premature-decay class | ✓ Good — caught live, reverted, guarded, pinned by contract tests |
+| Roulette retired only after shadow validation (D-45) | No human-kept memory may be demoted by the pass before the ritual goes | ✓ Good — rules-level verdict recorded as committed artifact |
 
 ## Evolution
 
@@ -188,4 +189,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — Phase 4 complete; ALL v1.0 phases done (reorg + docs realigned + install re-derived)*
+*Last updated: 2026-06-12 after v1.0 milestone*
