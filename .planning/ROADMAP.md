@@ -42,7 +42,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Write-time triggers in frontmatter + check-write enforcement (shape + specificity gates)
+- [x] 01-02-PLAN.md — Write-time triggers in frontmatter + check-write enforcement (shape + specificity gates)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trigger Grammar & Write-Time Intelligence | 1/4 | Executing | - |
+| 1. Trigger Grammar & Write-Time Intelligence | 2/4 | In Progress|  |
 | 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |

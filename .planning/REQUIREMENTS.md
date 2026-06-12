@@ -10,7 +10,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Routing Core
 
 - [ ] **CORE-01**: A tag is defined by its evidence patterns in one unified artifact — vocabulary, routing rules, and tag links collapse into a single source under one grammar covering both tag-level evidence (shared domain patterns) and per-memory triggers; a tag without observable triggers cannot exist (schema-enforced)
-- [ ] **CORE-02**: Saving a memory derives its trigger patterns at write time, while the authoring model is in-context — triggers are embedded at save, not assigned later
+- [x] **CORE-02**: Saving a memory derives its trigger patterns at write time, while the authoring model is in-context — triggers are embedded at save, not assigned later
 - [ ] **CORE-03**: The routing index is a build artifact compiled from the store — one command rebuilds it fully at any time; it is never hand-edited and never needs migration
 - [ ] **CORE-04**: Per-tool-call recall is a precomputed lookup routed on behavioral evidence (paths touched, commands run, symbols named) parsed from tool_input — no LLM call, no embeddings; added wall time ≤ 50ms p95 per tool call on this box (measured baseline: 28–51ms)
 - [ ] **CORE-05**: Every recall block cites the evidence tuple that fired it ({tag, trigger_type, matched_value}) — a wrong fire is diagnosable in seconds
@@ -72,7 +72,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CORE-01 | Phase 1 | In Progress (01-01: grammar artifact + parser + schema validation delivered) |
-| CORE-02 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Complete |
 | CORE-07 | Phase 1 | Pending |
 | ORG-04 | Phase 1 | Pending |
 | MIG-01 | Phase 1 | In Progress (01-01: gate checklist committed as first Phase-1 artifact) |
@@ -93,6 +93,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORG-03 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 20 total
 - Mapped to phases: 20
 - Unmapped: 0 ✓
