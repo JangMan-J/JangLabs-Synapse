@@ -511,6 +511,30 @@ class TriggersSpecificityGate(TempStore):
         self.assertEqual(rc, 0,
                          f"fully specific triggers should pass (rc 0); msg: {msg!r}")
 
+    def test_broad_glob_absolute_spelling_denied(self):
+        """WR-01/D-10: the ABSOLUTE spelling of ~/** must be denied like ~/** itself.
+
+        Before the fix, comparing the home-expanded form against the unexpanded
+        BROAD_GLOBS set was dead code, so /home/<user>/** sailed through as
+        'specific' behavioral evidence.
+        """
+        from pathlib import Path as _P
+        abs_home_glob = str(_P.home()) + "/**"
+        rc, msg = ms._check_triggers(
+            {"commands": [], "paths": [abs_home_glob], "args": [], "synonyms": []})
+        self.assertEqual(rc, 2,
+                         f"absolute home glob {abs_home_glob!r} as only evidence must be "
+                         f"denied (WR-01); msg: {msg!r}")
+
+    def test_bare_tilde_paths_denied(self):
+        """WR-01/D-10: '~' and '~/' (the entire home directory) are broad, not specific."""
+        for broad in ("~", "~/"):
+            rc, msg = ms._check_triggers(
+                {"commands": [], "paths": [broad], "args": [], "synonyms": []})
+            self.assertEqual(rc, 2,
+                             f"path {broad!r} as only evidence must be denied (WR-01); "
+                             f"msg: {msg!r}")
+
 
 class LegacyPreservation(TempStore):
     """D-09/spec: legacy memories with NO triggers block must not be retroactively invalidated.

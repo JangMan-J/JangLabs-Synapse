@@ -576,16 +576,15 @@ def _check_triggers(triggers):
             "a memory with no observable behavioral trigger cannot be routed).\n"
             + TRIGGER_SCHEMA_HINT
         )
-    # Specificity gate (D-10): generic-only commands with no qualifying paths/args
+    # Specificity gate (D-10): generic-only commands with no qualifying paths/args.
+    # Compare the EXPANDED path against an EXPANDED broad set (WR-01): comparing the
+    # home-expanded form against the unexpanded BROAD_GLOBS was dead code, letting the
+    # absolute spelling of ~/** (and bare ~ / ~/) sail through as "specific".
     home = str(Path.home())
-    non_broad_paths = []
-    for p in paths:
-        # Expand ~ for comparison
-        expanded = home + p[1:] if p.startswith("~") else p
-        # A path is non-broad if it is NOT in BROAD_GLOBS (after normalization)
-        norm = p.rstrip("/")
-        if norm not in BROAD_GLOBS and expanded.rstrip("/") not in BROAD_GLOBS:
-            non_broad_paths.append(p)
+    broad_expanded = ({_expand(g).rstrip("/") for g in BROAD_GLOBS}
+                      | {home, "/", ""})
+    non_broad_paths = [p for p in paths
+                       if _expand(p).rstrip("/") not in broad_expanded]
     if cmds and not args and not non_broad_paths:
         all_generic = all(c in GENERIC_VERBS for c in cmds)
         if all_generic:
