@@ -60,9 +60,13 @@ BLOCK_RE_TRIM = re.compile(
 
 # Lab-sourced memory assets are symlinked into the store; generated artifacts never are.
 GENERATED_MEMORY = {"_memory_catalog.json", "_memory_surface_config.json"}
-# Only taxonomy + game-engine infra is lab-sourced. Entry files the store owns outright;
-# a stray entry in the lab dir (mis-routed write) must never be re-linked into the store.
-MEMORY_INFRA = {"_tags.md", "_tag_links.md", "_review_game.py"}
+# _grammar.md is the one lab-sourced routing-vocabulary artifact the rebuild engine consumes
+# (principle 6: one routing vocabulary) and is install-managed.
+# _tags.md and _tag_links.md remain in the store as inert legacy data files whose EXISTING
+# symlinks the harness leaves in place but never manages, lists, or removes again.
+# WARNING: do NOT remove the store's _tags.md symlink — validate() reads it; removing it
+# would break every validate call (Pitfall 6).
+MEMORY_INFRA = {"_grammar.md"}
 
 
 # --------------------------------------------------------------------- helpers
