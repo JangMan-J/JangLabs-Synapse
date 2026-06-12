@@ -31,6 +31,10 @@ META_ORDER = ["node_type", "type", "tags", "originSessionId",
               "lastReviewed", "declineCount", "nextEligible"]
 FACET_HEADS = ("domain", "tool", "pattern")
 
+# ---------------------------------------------------------------- grammar constants (Plan 01-01)
+PLACEMENTS = ("box", "project", "either")
+GRAMMAR_FIELDS = ("gloss", "placement", "commands", "paths", "args", "synonyms", "related")
+
 
 # ---------------------------------------------------------------- store location
 def resolve_memdir(explicit=None):
@@ -207,6 +211,145 @@ def parse_tag_links(path):
                 tags = re.findall(r"`([a-z0-9-]+)`", m.group(2))
                 paths.append((m.group(1), tags, m.group(3) or "strong", m.group(4) or ""))
     return {"synonyms": syn, "distinctions": dist, "path_tags": paths}
+
+
+def parse_grammar_md(path):
+    """Parse _grammar.md into {tag: {facet, gloss, placement, commands, paths, args,
+    synonyms, related, _unknown_fields}}.
+
+    Scanner extends the parse_tags_md() pattern (D-02): H2 sets active facet,
+    H3 opens an entry, field lines fill it.  Array fields are parsed via the
+    _parse_flow_tags() strip-brackets/split-comma/strip-quotes approach.
+    Missing file returns {} (fail-open, matching every existing parser).
+    """
+    if not Path(path).exists():
+        return {}
+    result = {}
+    active_facet = None
+    active_tag = None
+
+    def _new_entry():
+        return {
+            "facet": active_facet,
+            "gloss": "",
+            "placement": "either",
+            "commands": [],
+            "paths": [],
+            "args": [],
+            "synonyms": [],
+            "related": [],
+            "_unknown_fields": [],
+        }
+
+    for raw in Path(path).read_text().split("\n"):
+        h = raw.strip()
+        if h.startswith("## "):
+            # H2 — facet heading (domain/tool/pattern); ignore spec H2 sections
+            n = h[3:].strip().lower()
+            if any(n.startswith(f) for f in FACET_HEADS):
+                active_facet = n
+            else:
+                active_facet = n   # still record so bad-facet validation works
+            active_tag = None
+            continue
+        if h.startswith("### "):
+            # H3 — tag entry start
+            tag = h[4:].strip()
+            active_tag = tag
+            result[active_tag] = _new_entry()
+            result[active_tag]["facet"] = active_facet
+            continue
+        if active_tag is None:
+            continue
+        if ":" not in raw:
+            continue
+        k, v = raw.split(":", 1)
+        k, v = k.strip(), v.strip()
+        if not k:
+            continue
+        if k == "gloss":
+            result[active_tag]["gloss"] = v
+        elif k == "placement":
+            result[active_tag]["placement"] = v if v else "either"
+        elif k in ("commands", "paths", "args", "synonyms", "related"):
+            result[active_tag][k] = _parse_flow_tags(v) if v else []
+        else:
+            result[active_tag]["_unknown_fields"].append(k)
+    return result
+
+
+def validate_grammar(memdir):
+    """Validate _grammar.md against the spec-defined schema rules (D-03).
+
+    Returns a list of error strings (same shape as validate()).  Empty list = clean.
+    Exit 0 if clean; exit 2 if errors (mirrored by CLI validate-grammar subcommand).
+
+    Rules enforced:
+    - Tag name must match TAG_RE
+    - Gloss must be non-empty
+    - Placement must be in PLACEMENTS (default 'either' for absent — not an error)
+    - At least one behavioral evidence pattern across commands+paths+args (synonyms alone fail)
+    - Every related: entry must reference a tag defined in this file
+    - Unknown field names are errors
+    - Facet must be in FACET_HEADS
+    """
+    grammar = parse_grammar_md(Path(memdir) / "_grammar.md")
+    if not grammar:
+        return []                                   # missing file -> fail open (no errors)
+    errors = []
+    all_tags = set(grammar.keys())
+    for tag, entry in grammar.items():
+        # Tag name shape
+        if not TAG_RE.match(tag):
+            errors.append(
+                f"grammar tag '{tag}' is malformed (must match ^[a-z0-9][a-z0-9-]{{1,39}}$)"
+            )
+        # Facet must be in FACET_HEADS
+        facet = (entry.get("facet") or "").lower()
+        if facet not in FACET_HEADS:
+            errors.append(
+                f"grammar tag '{tag}' has unknown facet '{facet}' "
+                f"(must be one of {FACET_HEADS})"
+            )
+        # Gloss must be non-empty
+        if not (entry.get("gloss") or "").strip():
+            errors.append(
+                f"grammar tag '{tag}' has an empty gloss; every tag must have a "
+                f"one-line meaning (gloss: ...)"
+            )
+        # Placement must be valid (absent already defaults to 'either' in parser)
+        placement = entry.get("placement", "either")
+        if placement not in PLACEMENTS:
+            errors.append(
+                f"grammar tag '{tag}' has invalid placement '{placement}' "
+                f"(must be one of {PLACEMENTS})"
+            )
+        # Evidence requirement: at least one behavioral trigger across commands/paths/args
+        has_evidence = (
+            bool(entry.get("commands")) or
+            bool(entry.get("paths")) or
+            bool(entry.get("args"))
+        )
+        if not has_evidence:
+            errors.append(
+                f"grammar tag '{tag}' has no behavioral evidence patterns "
+                f"(commands, paths, and args are all empty); synonyms alone do not qualify — "
+                f"a tag without observable triggers cannot exist (D-03)"
+            )
+        # Related references must be defined tags in this file
+        for ref in (entry.get("related") or []):
+            if ref and ref not in all_tags:
+                errors.append(
+                    f"grammar tag '{tag}' has related: '{ref}' which is not defined "
+                    f"in _grammar.md (undefined related tag)"
+                )
+        # Unknown field names
+        for uf in (entry.get("_unknown_fields") or []):
+            errors.append(
+                f"grammar tag '{tag}' has unknown field '{uf}' "
+                f"(recognized fields: {GRAMMAR_FIELDS})"
+            )
+    return errors
 
 
 def synonym_map(synonyms):
@@ -923,6 +1066,11 @@ def main():
         return 0                                       # fail open: no store, nothing to do
     if cmd == "validate":
         errs = validate(memdir)
+        for e in errs:
+            print(e, file=sys.stderr)
+        return 0 if not errs else 2
+    if cmd == "validate-grammar":
+        errs = validate_grammar(memdir)
         for e in errs:
             print(e, file=sys.stderr)
         return 0 if not errs else 2
