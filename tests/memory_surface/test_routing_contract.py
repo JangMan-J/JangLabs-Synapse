@@ -1172,34 +1172,41 @@ synonyms: []
 related: []
 """
         tags_with_tier = TAGS_MD + "- tier-test-tag — tag for tier ordering test\n"
-        # cmd-mem: per-memory trigger via command (strong)
-        # arg-mem: per-memory trigger via grammar arg 'tier-test-arg' (medium)
+        # cmd-mem: per-memory trigger via command → one strong tuple (weight 10).
+        # arg-mem: grammar arg 'tier-test-arg' → medium byArg tuple (weight 6) PLUS a
+        # per-memory synonym on the same token → weak bySynonym tuple (weight 3).
+        # Two tuples let arg-mem pass the surface gate (WR-05: with only the single
+        # medium tuple it could never surface, so the ordering assertion never ran);
+        # medium+weak = 9 < strong = 10 keeps the D-27 ordering observable.
         mems = {
             "cmd-mem.md": _mem("cmd-mem", ["nvidia"],
                                triggers={"commands": ["tier-cmd"], "paths": [],
                                          "args": [], "synonyms": []}),
-            "arg-mem.md": _mem("arg-mem", ["tier-test-tag"]),
+            "arg-mem.md": _mem("arg-mem", ["tier-test-tag"],
+                               triggers={"commands": [], "paths": [],
+                                         "args": [], "synonyms": ["tier-test-arg"]}),
         }
         mems.update(MEMORIES_DEFAULT)
         make_store(self.store, tags=tags_with_tier, grammar=grammar_with_arg, memories=mems)
 
     def test_command_match_outranks_arg_match(self):
-        """cmd-mem (command strong-tier) must have score ≥ arg-mem (arg medium-tier) for same event."""
-        # Event: Bash 'tier-cmd tier-test-arg' — fires cmd-mem via command AND arg-mem via arg
+        """cmd-mem (1 strong tuple) must outscore arg-mem (medium+weak tuples) — both surface."""
+        # Event: Bash 'tier-cmd tier-test-arg' — fires cmd-mem via command (strong)
+        # AND arg-mem via byArg (medium) + bySynonym (weak) on the same arg token.
         event = {"tool_name": "Bash",
                  "tool_input": {"command": "tier-cmd tier-test-arg"},
                  "cwd": "/tmp"}
         result = ms.search(self.store, event)
-        ids = [r["id"] for r in result["results"]]
         cmd_score = next((r["score"] for r in result["results"] if r["id"] == "cmd-mem"), None)
         arg_score = next((r["score"] for r in result["results"] if r["id"] == "arg-mem"), None)
-        if cmd_score is not None and arg_score is not None:
-            self.assertGreaterEqual(cmd_score, arg_score,
-                                    "command-matched memory must score ≥ arg-matched (D-27 tier weights)")
-        elif cmd_score is not None:
-            pass  # cmd-mem surfaced but arg-mem did not — tier ordering satisfied
-        # If neither appears, tier ordering can't be tested — skip gracefully
-        # (both must appear for the ordering test to be meaningful)
+        self.assertIsNotNone(cmd_score,
+                             "cmd-mem (strong command tuple) must surface for the event")
+        self.assertIsNotNone(arg_score,
+                             "arg-mem (medium byArg + weak bySynonym tuples) must surface "
+                             "for the event — without it the ordering assertion is vacuous")
+        self.assertGreater(cmd_score, arg_score,
+                           "command-matched memory must outscore arg-matched (D-27 tier "
+                           "weights: strong=10 > medium+weak=9)")
 
 
 # ---------------------------------------------------------------------------
