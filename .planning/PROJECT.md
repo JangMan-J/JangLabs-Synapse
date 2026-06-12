@@ -97,10 +97,10 @@ maintains metadata.**
 - [x] Index as build artifact: full rebuild from store contents at any time (Phase 2)
 - [x] Telemetry-driven self-curation (promotion/demotion/decay); zero human curation (Phase 3 — evidence-guarded maintenance pass live on SessionStart cadence)
 - [x] Memory Roulette retired as human ritual (automated maintenance pass replaces it) (Phase 3 — D-45 shadow-validated, offer hook deregistered)
-- [ ] Repo reorganized into clear subsystem boundaries (base harness / memory system / install tooling)
-- [ ] Prune and consolidate: every component re-justified against the working implementation
-- [ ] Docs/reality realignment: README, CLAUDE.md, fragment, findings describe what actually exists
-- [ ] Install-layout rework: how files map into ~/.claude re-derived from the new core's needs
+- [x] Repo reorganized into clear subsystem boundaries (base harness / memory system / install tooling) (Phase 4)
+- [x] Prune and consolidate: every component re-justified against the working implementation (Phase 4 — SC-1 table in README; Roulette + legacy write-path code deleted)
+- [x] Docs/reality realignment: README, CLAUDE.md, fragment, findings describe what actually exists (Phase 4 — drift-table-driven; corrected fragment deployed live)
+- [x] Install-layout rework: how files map into ~/.claude re-derived from the new core's needs (Phase 4 — MEMORY_INFRA={_grammar.md}; D-55 symmetric cycle demonstrated)
 
 ### Out of Scope
 
@@ -188,4 +188,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — Phase 3 complete (self-curation live; Roulette retired)*
+*Last updated: 2026-06-12 — Phase 4 complete; ALL v1.0 phases done (reorg + docs realigned + install re-derived)*
