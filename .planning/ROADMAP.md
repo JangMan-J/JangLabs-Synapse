@@ -114,7 +114,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md — D-45 shadow validation vs Roulette (real run, committed artifact) + gated Roulette retirement (CUR-04)
+- [x] 03-03-PLAN.md — D-45 shadow validation vs Roulette (real run, committed artifact) + gated Roulette retirement (CUR-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -145,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
-| 3. Telemetry & Self-Curation | 2/4 | In Progress|  |
+| 3. Telemetry & Self-Curation | 3/4 | In Progress|  |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
 ## Coverage
