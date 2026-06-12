@@ -7,8 +7,11 @@
 #                                              FAIL CLOSED for trigger/placement errors.
 #   - Edit/MultiEdit to a memory            -> cannot reconstruct the full file from
 #                                              new_string; FAIL OPEN (allow).
-#   - Write/Edit to taxonomy (_tags.md /    -> validate; DENY on error. FAIL CLOSED.
-#     _tag_links.md / _grammar.md)             BUT allow bootstrap (file not yet on disk).
+#   - Write to taxonomy (_tags.md /         -> validate the PROPOSED .content in a temp
+#     _tag_links.md / _grammar.md)             store (WR-04); DENY on error. FAIL CLOSED.
+#   - Edit/MultiEdit to taxonomy            -> validate the CURRENT on-disk file; DENY on
+#                                              error. Bootstrap (file not on disk) -> allow.
+#     (In-store paths only — same-named files elsewhere are not gated. CR-02.)
 #
 # Detection widened (D-14): box store + any Claude project store + repo memory/ dirs.
 # Placement gate (D-15): box-placement tags at non-box target -> deny with correct store path.
@@ -98,26 +101,39 @@ fi
 # (fail open). The engine is readability-checked above, and we additionally require a non-empty
 # reason before blocking, so an rc 2 below is a genuine validation deny, not an interpreter error.
 
-if [ "$TYPE" = taxonomy ]; then
-  # Bootstrap: creating the taxonomy file from scratch -> allow (so a fresh store inits).
+if [ "$TYPE" = taxonomy ] || [ "$TYPE" = grammar ]; then
+  # Bootstrap: creating the file from scratch -> allow (so a fresh store inits).
   [ -e "$abs" ] || exit 0
-  # validate inspects the CURRENT on-disk taxonomy (pre-write — a TOCTOU the PostToolUse
-  # refresh closes authoritatively). Catches editing an already-broken taxonomy.
-  errs=$(python3 "$ENGINE" validate 2>&1); rc=$?
-  if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
-    { echo "memory-write-guard: refused $base edit — taxonomy invalid:"; printf '%s\n' "$errs"; } >&2
-    exit 2
+  vcmd=validate; vlabel=taxonomy
+  if [ "$TYPE" = grammar ]; then vcmd=validate-grammar; vlabel=grammar; fi
+  # Full Write: validate the PROPOSED content (WR-04) — prevention, not detection.
+  # Stage it in a temp store next to copies of the current sibling taxonomy files so
+  # cross-file checks still apply. A corrupting Write is denied BEFORE it lands; a
+  # repairing Write of a currently-broken file is correctly allowed.
+  content=$(printf '%s' "$input" | jq -r '.tool_input.content // empty' 2>/dev/null || true)
+  if [ -n "$content" ]; then
+    tmpd=$(mktemp -d 2>/dev/null) || tmpd=""
+    if [ -n "$tmpd" ]; then
+      trap 'rm -rf "$tmpd"' EXIT
+      for f in _tags.md _tag_links.md _grammar.md; do
+        [ -e "$STORE/$f" ] && cp -L "$STORE/$f" "$tmpd/$f" 2>/dev/null
+      done
+      printf '%s' "$content" > "$tmpd/$base"
+      errs=$(python3 "$ENGINE" "$vcmd" --memory-dir "$tmpd" 2>&1); rc=$?
+      if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
+        { echo "memory-write-guard: refused $base write — proposed $vlabel invalid:"; printf '%s\n' "$errs"; } >&2
+        exit 2
+      fi
+      exit 0
+    fi
+    # mktemp failed -> fall through to the on-disk check (old behavior, fail open-ish)
   fi
-  exit 0
-fi
-
-if [ "$TYPE" = grammar ]; then
-  # Bootstrap: creating the grammar file from scratch -> allow.
-  [ -e "$abs" ] || exit 0
-  # validate-grammar inspects the CURRENT on-disk grammar.
-  errs=$(python3 "$ENGINE" validate-grammar 2>&1); rc=$?
+  # Edit/MultiEdit (no .content): the post-edit file cannot be reconstructed, so validate
+  # the CURRENT on-disk file (pre-write — a TOCTOU the PostToolUse refresh closes
+  # authoritatively). Catches editing an already-broken taxonomy/grammar.
+  errs=$(python3 "$ENGINE" "$vcmd" 2>&1); rc=$?
   if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
-    { echo "memory-write-guard: refused $base edit — grammar invalid:"; printf '%s\n' "$errs"; } >&2
+    { echo "memory-write-guard: refused $base edit — $vlabel invalid:"; printf '%s\n' "$errs"; } >&2
     exit 2
   fi
   exit 0

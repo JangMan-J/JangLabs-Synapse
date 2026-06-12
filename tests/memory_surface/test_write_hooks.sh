@@ -253,6 +253,36 @@ rc_is "GUARD _tags.md exempt -> rc=0 (D-14)" 0 "$got_rc"
 out=$(mkwrite "$FIX/MEMORY.md" "# Memory index" | "$GUARD" 2>&1); got_rc=$?
 rc_is "GUARD MEMORY.md exempt -> rc=0 (D-14)" 0 "$got_rc"
 
+echo "── GUARD: proposed taxonomy/grammar content validated (WR-04) ──"
+# A full Write whose PROPOSED content corrupts the taxonomy is denied BEFORE it lands
+# (the old gate validated the on-disk file, so corrupting Writes passed the only blocker).
+BROKEN_PROPOSED_TAGS='# tags
+## domain
+- config — broken on purpose
+## Denylist
+- config — too generic
+## Policy overrides'
+stderr_out=$(mkwrite "$FIX/_tags.md" "$BROKEN_PROPOSED_TAGS" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD corrupting _tags.md Write denied -> rc=2 (WR-04)" 2 "$got_rc"
+assert_contains "GUARD corrupting Write stderr names the error (WR-04)" "denylisted" "$stderr_out"
+# A VALID full Write still passes (re-write the current content)
+GOOD_PROPOSED_TAGS=$(cat "$FIX/_tags.md")
+out=$(mkwrite "$FIX/_tags.md" "$GOOD_PROPOSED_TAGS" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD valid _tags.md Write allowed -> rc=0 (WR-04)" 0 "$got_rc"
+# Same for grammar: a proposed entry with empty gloss + bogus placement + no evidence -> deny
+BROKEN_PROPOSED_GRAMMAR='## domain
+
+### broken-tag
+gloss:
+placement: nowhere
+commands: []
+paths: []
+args: []
+synonyms: []
+related: []'
+stderr_out=$(mkwrite "$FIX/_grammar.md" "$BROKEN_PROPOSED_GRAMMAR" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD corrupting _grammar.md Write denied -> rc=2 (WR-04)" 2 "$got_rc"
+
 echo "── GUARD: taxonomy gate is path-scoped (CR-02) ──"
 # A file that merely SHARES a taxonomy basename outside the store is NOT gated —
 # even when the box-store taxonomy is currently invalid (the exact state where the
