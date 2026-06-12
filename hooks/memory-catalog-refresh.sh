@@ -37,11 +37,31 @@ if command -v realpath >/dev/null 2>&1; then
 fi
 
 [ -e "$STORE/.surface-disabled" ] && exit 0            # kill-switch
-case "$abs" in "$STORE"/*) ;; *) exit 0 ;; esac        # not a store write (..-safe)
+
+# Determine if this write targets a store file (store-addressed or lab-addressed backing file).
+# Lab-addressed check (CORE-08 gap 2 / mirrors WR-02): the store's taxonomy+grammar files are
+# symlinks into the lab; an Edit addressed at synapse/memory/_grammar.md fails the lexical
+# "$STORE"/* match but resolves to the same inode. Use readlink -f equality (same as
+# memory-write-guard.sh WR-02 pattern) for those three basenames ONLY.
+base_tmp=${abs##*/}
+case "$base_tmp" in *.md) ;; *) exit 0 ;; esac         # only .md files — early cheap gate
+IS_STORE_FILE=0
+case "$abs" in
+  "$STORE"/*) IS_STORE_FILE=1 ;;
+  *)
+    case "$base_tmp" in
+      _tags.md|_tag_links.md|_grammar.md)
+        real_store_f=$(readlink -f -- "$STORE/$base_tmp" 2>/dev/null || true)
+        real_abs=$(readlink -f -- "$abs" 2>/dev/null || printf '%s' "$abs")
+        [ -n "$real_store_f" ] && [ "$real_abs" = "$real_store_f" ] && IS_STORE_FILE=1 ;;
+    esac ;;
+esac
+[ "$IS_STORE_FILE" -eq 1 ] || exit 0                   # not a store write -> nothing to refresh
+
 base=${abs##*/}
-case "$base" in *.md) ;; *) exit 0 ;; esac             # only .md files
 case "$base" in
   _tags.md|_tag_links.md) TYPE=taxonomy ;;
+  _grammar.md) TYPE=grammar ;;                          # CORE-08 gap 1: grammar writes rebuild
   MEMORY.md|_*) exit 0 ;;                              # index / generated -> not gated
   *) TYPE=memory ;;
 esac
@@ -54,6 +74,14 @@ if [ "$TYPE" = taxonomy ]; then
   errs=$(python3 "$ENGINE" validate 2>&1); rc=$?
   if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
     { echo "memory-catalog-refresh: taxonomy is now invalid after writing $base — fix before relying on memory surfacing:"; printf '%s\n' "$errs"; } >&2
+    exit 2
+  fi
+fi
+# A grammar write that landed an invalid grammar: surface it (same exit-2 + stderr shape).
+if [ "$TYPE" = grammar ]; then
+  errs=$(python3 "$ENGINE" validate-grammar 2>&1); rc=$?
+  if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
+    { echo "memory-catalog-refresh: grammar is now invalid after writing $base — fix before relying on memory surfacing:"; printf '%s\n' "$errs"; } >&2
     exit 2
   fi
 fi
