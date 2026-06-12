@@ -71,11 +71,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 1 | Pending |
+| CORE-01 | Phase 1 | In Progress (01-01: grammar artifact + parser + schema validation delivered) |
 | CORE-02 | Phase 1 | Pending |
 | CORE-07 | Phase 1 | Pending |
 | ORG-04 | Phase 1 | Pending |
-| MIG-01 | Phase 1 | Pending |
+| MIG-01 | Phase 1 | In Progress (01-01: gate checklist committed as first Phase-1 artifact) |
 | CORE-03 | Phase 2 | Pending |
 | CORE-04 | Phase 2 | Pending |
 | CORE-05 | Phase 2 | Pending |

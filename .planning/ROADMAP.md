@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — MVR gate checklist + unified grammar artifact (parser, schema validation, store symlink)
+- [x] 01-01-PLAN.md — MVR gate checklist + unified grammar artifact (parser, schema validation, store symlink)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trigger Grammar & Write-Time Intelligence | 0/4 | Planned | - |
+| 1. Trigger Grammar & Write-Time Intelligence | 1/4 | Executing | - |
 | 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
