@@ -643,7 +643,7 @@ def maintenance(memdir, shadow=False):
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED — adopted by planner per recommendations: _maintenance_state.json sidecar; evidence window ≥10 sessions or 30 days)
 
 1. **D-47 telemetry gate timing**
    - What we know: Seat demotion requires real telemetry showing fires in real sessions.
