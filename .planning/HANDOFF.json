@@ -1,32 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-12T05:44:18.634Z",
-  "phase": "1",
-  "phase_name": "Trigger Grammar & Write-Time Intelligence",
-  "phase_dir": ".planning/phases/01-trigger-grammar-write-time-intelligence",
-  "plan": null,
-  "task": null,
-  "total_tasks": 0,
+  "timestamp": "2026-06-12T09:47:59.757Z",
+  "phase": "02",
+  "phase_name": "routing-index-live-recall-cutover",
+  "phase_dir": ".planning/phases/02-routing-index-live-recall-cutover",
+  "plan": 2,
+  "task": 2,
+  "total_tasks": 12,
   "status": "paused",
-  "workflow_stage": "context-gathered (discuss-phase complete; plan-phase not started)",
   "completed_tasks": [
-    {"id": 1, "name": "plan-phase 1 initialized; paused at context gate (operator chose discuss-first)", "status": "done", "commit": null},
-    {"id": 2, "name": "discuss-phase 1 in autonomous mode — 01-CONTEXT.md with decisions D-01..D-20 + 01-DISCUSSION-LOG.md", "status": "done", "commit": "cd53a8c"},
-    {"id": 3, "name": "STATE.md session recorded (stopped at: Phase 1 context gathered)", "status": "done", "commit": "cd83cad"}
+    {"id": "02-01", "name": "triggerIndex compiler + routability report + CORE-08 closure (3 tasks)", "status": "done", "commit": "90b6780..37c071c", "summary": "02-01-SUMMARY.md exists; live store rebuilt: 144 memories, 0 unroutable"},
+    {"id": "02-02/T1", "name": "search_new matcher contract tests (RED)", "status": "done", "commit": "d0eac89"},
+    {"id": "02-02/T2", "name": "search_new implementation (GREEN)", "status": "in_progress", "progress": "BACKGROUND EXECUTOR WAS STILL RUNNING AT PAUSE (agent on plan 02-02; uncommitted lib/memory_surface.py edits in working tree). May have completed or died after this snapshot — RE-VERIFY on resume: check for 02-02-SUMMARY.md and new 02-02 commits."}
   ],
   "remaining_tasks": [
-    {"id": 4, "name": "plan-phase 1 with --skip-research (researcher skipped by operator directive; pattern-mapper + planner + plan-checker still spawn)", "status": "not_started"},
-    {"id": 5, "name": "execute-phase 1 (MVR.md first, then grammar + write pipeline per plans)", "status": "not_started"}
+    {"id": "02-02", "name": "Staged evidence matcher + tier scoring + inline evidence tuples (verify/finish)", "status": "in_progress"},
+    {"id": "02-03", "name": "5+5 probe runner through real hook + p95 benchmark + jq budget lever", "status": "not_started"},
+    {"id": "02-04", "name": "MVR gate demonstrations + one-commit flip + legacy prune", "status": "not_started"}
   ],
-  "blockers": [],
+  "blockers": [
+    {"description": "Plan 02-02 executor was mid-flight at pause; working tree may hold its uncommitted lib/memory_surface.py edits", "type": "technical", "workaround": "If 02-02-SUMMARY.md absent: inspect git status/diff; either let safe_resume_gate route recovery, or reset uncommitted engine edits to the d0eac89 RED baseline and re-dispatch plan 02-02"}
+  ],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "All Phase 1 implementation decisions D-01..D-20 captured in 01-CONTEXT.md (grammar artifact form/home, fail-closed trigger enforcement, two-layer dedup, graduated placement enforcement, MVR at .planning/MVR.md first, spec-first tests, walking-skeleton shape)", "rationale": "Operator delegated all decisions ('This is your project'); derived from PROJECT.md principles + research corpus + live implementation", "phase": "1"},
-    {"decision": "Skip phase-level research; planner reuses .planning/research/ corpus via CONTEXT.md canonical refs", "rationale": "Operator: research corpus from project initiation (same day) is fresh and complete; re-research would re-derive it", "phase": "1"}
+    {"decision": "Smart-discuss decisions D-21..D-32 locked in 02-CONTEXT.md (index-in-catalog, choke-point rebuild, mechanical fallback, staged flip, probe-through-real-hook)", "rationale": "Operator accepted all recommended grey-area answers", "phase": "02"},
+    {"decision": "Worktree isolation auto-degraded to sequential main-tree execution (#683: HEAD diverged from origin/HEAD)", "rationale": "Local commits not pushed; gsd worktree.base-check returned shouldDegrade=true", "phase": "02"},
+    {"decision": "D-24 (skip FTS5) tagged [informational] in CONTEXT.md", "rationale": "Skip-decision honored by absence; decision-coverage gate requires non-trackable tag", "phase": "02"}
   ],
-  "uncommitted_files": [
-    {"path": "memory/_tags.md", "note": "Concurrent session added pattern tag 'symptom-split-fingerprints-mechanism' (legacy vocabulary-first rule). Unrelated to GSD phase work — left uncommitted deliberately; do not fold into planning commits. Commit separately or leave for that session."}
-  ],
-  "next_action": "/clear then /gsd-plan-phase 1 --skip-research (run from synapse/ — .planning lives there)",
-  "context_notes": "Operator posture: full autonomy delegated, Fable max effort. Plan-phase gates pre-resolved this session (do not re-derive): MVP_MODE=true (ROADMAP '**Mode:** mvp'), WALKING_SKELETON=true (phase 01, zero prior summaries — planner must emit SKELETON.md), AI-SPEC gate: no AI keywords in goal (skip), UI gate: HAS_UI=1 no frontend (skip), Nyquist disabled, security enforcement ON (ASVS L1, block on high — plans need <threat_model>), pattern_mapper enabled (PATTERNS.md absent — mapper will spawn; CONTEXT.md+no RESEARCH.md is sufficient input), intel disabled, chunked=false, granularity=coarse, models: researcher=sonnet/planner=inherit/checker=haiku, commit_docs=true, text_mode=false. Phase requirement IDs: CORE-01, CORE-02, CORE-07, ORG-04, MIG-01. Hard scope fence: old routing path (memory-recall.sh, engine search/extract_tokens routing) stays live and untouched; no index compile, no telemetry, no reorg."
+  "uncommitted_files": ["lib/memory_surface.py (in-flight executor edits at pause time)"],
+  "next_action": "Run /gsd-resume-work. First verify plan 02-02 state: if 02-02-SUMMARY.md exists and commits look complete, run /gsd-execute-phase 2 (resumes at wave 3). If incomplete, follow execute-phase safe_resume_gate recovery, then /gsd-execute-phase 2. After phase 2 verification passes: gsd-code-review 2 (+ --fix --auto if findings), then /gsd-autonomous to continue phases 3-4 and lifecycle.",
+  "context_notes": "Session was an /gsd-autonomous run: Phase 2 discussed (smart discuss, 3 areas accepted), researched, planned (4 plans, checker passed iter 1), executing wave-by-wave with sonnet executors. Wave 1 (02-01) done and spot-checked against live store. Wave 2 (02-02) dispatched as background agent and still running when user invoked /gsd-pause-work. Key research flags: live p95 baseline 52-59ms vs <=50ms MVR gate (02-03 owns the jq-reduction lever); 10-11 memories need D-29b mechanical fallback (shipped in 02-01); probe runner must clear dedup marks under isolated XDG_RUNTIME_DIR. The MVR gate (.planning/MVR.md) gates the 02-04 flip - every item needs a real demonstration run, no assertions."
 }
