@@ -172,6 +172,24 @@ class TelemetryAppend(unittest.TestCase):
         rec = json.loads(self.tel.read_text().strip())
         self.assertIn("qid", rec)
 
+    # ── WR-08: unmarkable fires are not recorded (read-gate/fire-append parity) ──
+    def test_fire_skipped_when_marks_unwritable(self):
+        """When the dedup mark dir cannot be created (XDG_RUNTIME_DIR is a FILE),
+        the advisory still emits but the fire record is SKIPPED (WR-08): the Read
+        arm requires a live mark, so an unmarked fire could never earn a read and
+        would be pure demotion pressure."""
+        xdg_file = self.xdg / "not-a-dir"
+        xdg_file.write_text("")          # a file where the mark-dir parent should be
+        rc, out, err = run_hook(
+            RECALL,
+            {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"},
+            self.store, xdg_file)
+        self.assertEqual(rc, 0)
+        self.assertNotEqual(out.strip(), "",
+                            "advisory must still emit when marks are unwritable")
+        self.assertFalse(self.tel.exists(),
+                         "no fire record may be appended when marks were not persisted")
+
     # ── WR-06: append failure (read-only store) is SILENT — no stderr leak ───
     def test_readonly_store_append_silent(self):
         """A failing telemetry append (EACCES on a read-only store) must not leak

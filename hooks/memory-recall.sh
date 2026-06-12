@@ -127,6 +127,14 @@ surface=$(printf '%s' "$_surface_b64" | base64 -d 2>/dev/null || true)
 # If the mark dir is a symlink, not a dir, or not owned by us, skip dedup entirely
 # (fail open: the advisory still emits, we just don't keep marks). Never write
 # through an existing symlinked mark file.
+# _marks_ok (WR-08): records whether dedup marks were actually persisted for this
+# emission. The Read arm in memory-catalog-refresh.sh hard-requires a live mark to
+# record a read signal, so a fire recorded WITHOUT marks can never earn a read —
+# pure demotion pressure (the 22-demotion class through the mark-dir door). Fire
+# telemetry below is gated on this flag: no marks, no fire record. Skipped fires
+# leave those memories zero-fire, and D-43's zero-fire floor never demotes them —
+# the fail-safe direction.
+_marks_ok=0
 if [ -n "$ids" ]; then
   DD="${XDG_RUNTIME_DIR:-$HOME/.cache}/claude-memory-recall"
   mkdir -p -m 700 "$DD" 2>/dev/null || true
@@ -144,7 +152,10 @@ if [ -n "$ids" ]; then
       [ -L "$MARK" ] && continue
       : > "$MARK" 2>/dev/null || true
     done
+    _marks_ok=1
   fi
+else
+  _marks_ok=1   # no memory ids -> nothing to mark; mark state is irrelevant
 fi
 
 # Emit advisory additionalContext. NEVER deny in v1 (mustRead/required is Phase 4). Force the
@@ -158,7 +169,10 @@ jq -cn --arg ctx "$surface" \
 # _TEL_MAX: discretion-chosen constant (~1MB) for rotation — a per-fire config jq read would
 # cost ~3ms against ~1ms of p95 headroom; constant keeps fire-path forks at zero.
 _TEL_MAX=1048576
-if [ -n "$_qid" ]; then
+# WR-08: also gate on _marks_ok — fires whose dedup marks could not be persisted
+# are structurally unreadable (the Read arm requires a live mark) and would only
+# accumulate demotion pressure. Fire-append and read-gate must agree about marks.
+if [ -n "$_qid" ] && [ "${_marks_ok:-0}" -eq 1 ]; then
   TZ=UTC0 printf -v _tel_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1  # fork-free bash builtin timestamp
   _tel="$STORE/_recall_telemetry.jsonl"
   # D-35: size-gated rotation at _TEL_MAX; mv is atomic on same fs; race loser gets ENOENT (|| true)
