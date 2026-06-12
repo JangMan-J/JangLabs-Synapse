@@ -119,9 +119,21 @@ if [ "$TYPE" = taxonomy ] || [ "$TYPE" = grammar ]; then
         [ -e "$STORE/$f" ] && cp -L "$STORE/$f" "$tmpd/$f" 2>/dev/null
       done
       printf '%s' "$content" > "$tmpd/$base"
+      # Deny only on errors NOT already present in the current store (WR-01 iter-2):
+      # a sibling's pre-existing error must not block a repairing Write of THIS file
+      # — mirrors the engine's _mutate_then_validate "pre-existing unrelated errors
+      # must not block an edit" policy, and keeps the deny message attributable to
+      # the proposed content instead of misdirecting the retry at a sibling's fault.
+      pre=$(python3 "$ENGINE" "$vcmd" --memory-dir "$STORE" 2>&1) || true
       errs=$(python3 "$ENGINE" "$vcmd" --memory-dir "$tmpd" 2>&1); rc=$?
-      if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
-        { echo "memory-write-guard: refused $base write — proposed $vlabel invalid:"; printf '%s\n' "$errs"; } >&2
+      if [ -n "$pre" ]; then
+        # grep -Fxv with an EMPTY pattern set would drop every line; guarded above.
+        new_errs=$(printf '%s\n' "$errs" | grep -Fxv -f <(printf '%s\n' "$pre") || true)
+      else
+        new_errs=$errs
+      fi
+      if [ "$rc" -eq 2 ] && [ -n "$new_errs" ]; then
+        { echo "memory-write-guard: refused $base write — proposed $vlabel invalid:"; printf '%s\n' "$new_errs"; } >&2
         exit 2
       fi
       exit 0
