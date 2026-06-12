@@ -11,6 +11,9 @@
 # This is the one memory hook that must spawn Python (the search engine) — so it
 # cheap-gates hard in shell first: kill-switch, memory-dir writes, and pure-generic
 # Bash with no path/package signal all exit 0 before any python3 spawn.
+#
+# jq consolidation (CORE-04 / 02-03): pre-Python 4→1, post-Python 3→1, final stays.
+# Fire-path total: 3 jq spawns (down from ~7). Gate semantics unchanged (D-28).
 set -u
 
 SELF=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
@@ -27,13 +30,23 @@ command -v realpath >/dev/null 2>&1 && STORE=$(realpath -sm -- "$STORE" 2>/dev/n
 [ -d "$STORE" ] || exit 0                               # no store -> nothing to recall
 [ -e "$STORE/.surface-disabled" ] && exit 0             # kill-switch
 
+# ── Pre-Python: extract all four input fields in ONE jq spawn (T-02-13 / CORE-04).
+# Unit separator (0x1f) is used as delimiter — safe for all field values (paths,
+# commands, tool names never contain 0x1f). Fail-open: jq error → all vars empty.
+_US=$(printf '\x1f')
+IFS="$_US" read -r tool path cwd cmd <<< "$(
+  printf '%s' "$input" | jq -r \
+    --arg sep "$_US" \
+    '[.tool_name // "", .tool_input.file_path // .tool_input.path // "", .cwd // "", .tool_input.command // ""] | join($sep)' \
+    2>/dev/null || true
+)"
+
 # Skip writes/edits targeting the memory dir itself (those route to the write hooks).
-path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null || true)
 if [ -n "$path" ]; then
   case "$path" in
     /*) abs=$path ;;
     "~"*) abs="$HOME${path#\~}" ;;
-    *) cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true); abs="${cwd:-${PWD:-}}/$path" ;;
+    *) abs="${cwd:-${PWD:-}}/$path" ;;
   esac
   command -v realpath >/dev/null 2>&1 && abs=$(realpath -sm -- "$abs" 2>/dev/null || printf '%s' "$abs")
   case "$abs" in "$STORE"/*) exit 0 ;; esac
@@ -41,9 +54,7 @@ fi
 
 # Cheap-gate: a Bash command whose leading word is generic AND that carries no path /
 # package / unit signal cannot match anything — skip it without spawning Python.
-tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null || true)
 if [ "$tool" = "Bash" ]; then
-  cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
   first=${cmd%% *}; first=${first##*/}
   case " ls pwd cd cat sed awk grep rg find head tail wc jq echo true false : " in
     *" $first "*)
@@ -58,15 +69,24 @@ fi
 # Run the search engine on the original event (fail open on any error).
 resp=$(printf '%s' "$input" | python3 "$ENGINE" search 2>/dev/null) || exit 0
 [ -n "$resp" ] || exit 0
-n=$(printf '%s' "$resp" | jq -r '(.results // []) | length' 2>/dev/null || printf '0')
-case "$n" in ''|0|*[!0-9]*) exit 0 ;; esac              # no results -> silent
 
-surface=$(printf '%s' "$resp" | jq -r '.surfaceText // empty' 2>/dev/null || true)
+# ── Post-Python: extract count, ids, and surfaceText in ONE jq spawn (T-02-13 / CORE-04).
+# surfaceText is @base64-encoded to survive multiline content and ← characters.
+# Fail-open: jq error or empty → vars stay empty/zero, gates below exit silently.
+_post=$(printf '%s' "$resp" | jq -r '
+  ((.results // []) | length | tostring),
+  ([(.results // [])[].id // empty] | join(" ")),
+  (.surfaceText // "" | @base64)
+' 2>/dev/null || true)
+{ IFS= read -r n; IFS= read -r ids; IFS= read -r _surface_b64; } <<< "$_post"
+
+case "${n:-0}" in ''|0|*[!0-9]*) exit 0 ;; esac          # no results -> silent
+
+surface=$(printf '%s' "$_surface_b64" | base64 -d 2>/dev/null || true)
 [ -n "$surface" ] || exit 0
 
 # Dedup per MEMORY (not per queryId): emit only if some matched memory was NOT surfaced
 # within the last 15 minutes (~900s TTL); then refresh the marks for all of them.
-ids=$(printf '%s' "$resp" | jq -r '(.results // [])[].id // empty' 2>/dev/null || true)
 if [ -n "$ids" ]; then
   DD="${XDG_RUNTIME_DIR:-/tmp/claude-$(id -u 2>/dev/null || echo u)}/claude-memory-recall"
   mkdir -p "$DD" 2>/dev/null || true
