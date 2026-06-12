@@ -1,4 +1,4 @@
-# JangLabs-Claude — Harness Coherency & Tag Routing Reimagined
+# Synapse — Harness Coherency & Tag Routing Reimagined
 
 ## What This Is
 
@@ -113,9 +113,16 @@ maintains metadata.**
 
 ## Context
 
-- The repo is the `claude/` lab of the JangLabs multi-lab workspace (its own git repo,
-  `JangLabs-Claude`, wired in as a submodule). Lab conventions: hooks quiet on success,
-  cheap per turn, tested via sample-JSON stdin runs.
+- The repo is the `synapse/` lab of the JangLabs multi-lab workspace (its own git repo,
+  `JangLabs-Synapse`, wired in as a submodule). Renamed from `claude/`/`JangLabs-Claude`
+  at project initiation (2026-06-11), together with the memory taxonomy:
+  `[Method]` → `[Rewire]`, `[Fumble]` → `[Misfire]`, facet `method-pattern` → `pattern`.
+  Lab conventions: hooks quiet on success, cheap per turn, tested via sample-JSON stdin runs.
+- Live incoherence evidence (observed during initiation): concurrent sessions still
+  mis-route memory writes into the lab `memory/` dir as git-ignored "dark memories"
+  (3 found hours after the morning rescue of 9), and `agent-harness.py` re-linked them
+  into the store on install (now whitelisted to infra files). The write-path placement
+  bug remains unfixed — the redesign's write-time pipeline must own placement.
 - The harness is **live**: hooks are symlinked from this repo into `~/.claude/hooks/`,
   so edits here take effect immediately. Fragment/settings changes require
   `./agent-harness.py install --apply`.
@@ -142,12 +149,16 @@ maintains metadata.**
   default, symmetric remove, per-run timestamped backups).
 - **Security posture**: No `permissions` writes ever; secret-path and config-drift
   guards stay.
+- **Budgeted parallelism**: Fable is expensive. No serious parallelism run begins
+  without a checkpoint declaring the intended dispatch (N agents × which model);
+  parallel plan execution is allowed within that declared budget.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Initiate GSD management for this lab | Direction drifted twice; no persistent intent statement survived across sessions | — Pending |
+| Rename project to Synapse; `[Method]`/`[Fumble]` → `[Rewire]`/`[Misfire]` | The lab never had a real name; identity renamed across repo, store, taxonomy, and workspace at initiation | ✓ Good |
 | Routing-led sequencing | Design the new routing core first; the reorganization falls out of what the core needs | — Pending |
 | Tags-as-triggers paradigm | Unify vocabulary/rules/links into one artifact; makes orphan tags structurally impossible | — Pending |
 | Write-time intelligence, read-time lookup | Cost asymmetry: writes are rare and model-attended; reads happen per tool call | — Pending |
