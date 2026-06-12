@@ -102,7 +102,25 @@ Notes: Sequential waves — all engine plans share `lib/memory_surface.py`, and 
   4. Memory Roulette is retired as a human ritual, removed only after the automated maintenance pass is validated against it
   5. Base-floor (MEMORY.md router) seat membership is machine-decided from the same telemetry — a seat is demoted only once probes prove recall covers it, and changes are visible and vetoable in git without hand-audit
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Telemetry capture: fire-event append in recall hook + read-signal arm + Read matcher activation + bench gate (CUR-01/02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Automated maintenance pass: engine maintenance/maintenance-shadow + SessionStart trigger + D-44 summary (CUR-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-03-PLAN.md — D-45 shadow validation vs Roulette (real run, committed artifact) + gated Roulette retirement (CUR-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-04-PLAN.md — Machine-governed router seats: probe proof + evidence-window gate + pending-change block (CUR-05)
+
+Notes: Sequential waves — plans share `lib/memory_surface.py` and `tests/memory_surface/test_phase3.py`, hooks are live via symlink (tests green before dependent edits), and retirement is hard-gated on the D-45 validation verdict. The ≤55ms recall p95 gate is re-proven after the telemetry append (03-01) and at phase exit (03-04).
 
 ### Phase 4: Reorganization & Realignment
 
@@ -127,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
-| 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
+| 3. Telemetry & Self-Curation | 0/4 | Planned | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
 ## Coverage
@@ -146,3 +164,4 @@ All 20 v1 requirements mapped — no orphans, no duplicates.
 *Granularity: coarse (4 phases) — research's 7 fine phases consolidated along the data flow: write→derive (Phase 1), index→match→inject (Phase 2), telemetry→curation (Phase 3), reorganization (Phase 4)*
 *Phase 1 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file + hooks-last safety ordering per D-18)*
 *Phase 2 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file; MVR-gated flip last per D-30)*
+*Phase 3 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine/tests; validation-gated retirement per D-45; probe-gated seat governance per D-47)*
