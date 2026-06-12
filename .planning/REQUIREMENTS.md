@@ -34,9 +34,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Reorganization
 
-- [ ] **ORG-01**: The repo is restructured into clear subsystem boundaries (base harness / memory system / install tooling) with one source of truth each
+- [x] **ORG-01**: The repo is restructured into clear subsystem boundaries (base harness / memory system / install tooling) with one source of truth each
 - [ ] **ORG-02**: Every component is re-justified against the working implementation; README, CLAUDE.md, fragment, and findings accurately describe what exists
-- [ ] **ORG-03**: The install layout (how files map into ~/.claude) is re-derived from the new core's needs; agent-harness.py remains the single idempotent entry point
+- [x] **ORG-03**: The install layout (how files map into ~/.claude) is re-derived from the new core's needs; agent-harness.py remains the single idempotent entry point
 - [x] **ORG-04**: Memory writes route to the correct store by subject — the dark-memory mis-placement class is eliminated
 
 ## v2 Requirements
@@ -88,9 +88,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CUR-03 | Phase 3 | Complete (03-02) |
 | CUR-04 | Phase 3 | Complete |
 | CUR-05 | Phase 3 | Complete (03-04) |
-| ORG-01 | Phase 4 | Pending |
-| ORG-02 | Phase 4 | Pending |
-| ORG-03 | Phase 4 | Pending |
+| ORG-01 | Phase 4 | Complete (04-01) |
+| ORG-02 | Phase 4 | Pending (04-03) |
+| ORG-03 | Phase 4 | Complete (04-01) |
 
 **Coverage:**
 

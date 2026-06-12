@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 03-04-PLAN.md (Phase 03 complete)
-last_updated: "2026-06-12T19:44:05.729Z"
-last_activity: 2026-06-12
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-06-12T13:18:00.000Z"
+last_activity: 2026-06-12 -- Completed 04-01 (Roulette deletion + manifest re-derivation)
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
-  percent: 75
+  total_plans: 15
+  completed_plans: 13
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** The right memory surfaces at the right moment with zero human curation — and the whole system stays legible and maximum-punch-per-pound while doing it.
-**Current focus:** Phase 03 — telemetry-self-curation
+**Current focus:** Phase 04 — reorganization-realignment
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Phase complete — ready for Phase 04
-Last activity: 2026-06-12
+Phase: 04 (reorganization-realignment) — EXECUTING
+Plan: 2 of 3 (04-01 complete)
+Status: Executing Phase 04
+Last activity: 2026-06-12 -- Completed 04-01 (Roulette deletion + manifest re-derivation)
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 75%
 | Phase 03-telemetry-self-curation P02 | 18 | 3 tasks | 3 files |
 | Phase 03-telemetry-self-curation P03 | 5min | 2 tasks | 5 files |
 | Phase 03-telemetry-self-curation P04 | 15min | 3 tasks | 4 files |
+| Phase 04-reorganization-realignment P01 | 18min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Recent decisions affecting current work:
 - [03-04] All 11 live MEMORY.md seats show covered:false/no-derivable-probe — confirms seat bar valid (no per-tool-call trigger evidence for these memories by design)
 - [03-04] Seat-link regex must match ](stem.md) not [title](stem.md) — handles [[Misfire]/[Rewire]] nested-bracket titles; affects _parse_seat_stems in both seat_probes.py and memory_surface.py
 - [03-04] Evidence window for seat governance = maintenance pass standard (>=10 sessions OR >=30d span); pending block is the human-veto safety net
+- [04-01] MEMORY_INFRA = {"_grammar.md"}: _grammar.md is the only lab-sourced install-managed store artifact; _tags.md/_tag_links.md left as unmanaged legacy store data (removing _tags.md symlink would break validate — Pitfall 6)
+- [04-01] D-54 pattern: live symlink removed manually BEFORE git rm of source — harness iterates HOOKS_SRC.glob(*.sh) dynamically, so a deleted source can never self-clean its stale symlink
 
 ### Pending Todos
 
@@ -130,6 +133,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T18:52:00Z
-Stopped at: Completed 03-04-PLAN.md (Phase 03 complete)
+Last session: 2026-06-12T13:18:00Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None

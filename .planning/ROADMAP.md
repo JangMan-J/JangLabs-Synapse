@@ -138,7 +138,7 @@ Notes: Sequential waves — plans share `lib/memory_surface.py` and `tests/memor
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — D-49 Roulette deletion (live symlinks first, D-54) + install manifest re-derivation (MEMORY_INFRA → {"_grammar.md"}) + verified install/status cycle
+- [x] 04-01-PLAN.md — D-49 Roulette deletion (live symlinks first, D-54) + install manifest re-derivation (MEMORY_INFRA → {"_grammar.md"}) + verified install/status cycle
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
 | 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
-| 4. Reorganization & Realignment | 0/3 | Not started | - |
+| 4. Reorganization & Realignment | 1/3 | Executing | - |
 
 ## Coverage
 
