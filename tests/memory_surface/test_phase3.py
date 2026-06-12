@@ -143,6 +143,23 @@ class TelemetryAppend(unittest.TestCase):
         # Sanity: the fixture store is non-empty, so the checked sets are real
         self.assertTrue(mem_ids, "fixture catalog must contain memories (guards vacuity)")
 
+    # ── WR-12/WR-13: unwritable mark dir -> no fire append, no stderr leak ────
+    def test_unwritable_mark_dir_no_append_no_stderr(self):
+        """Mode-500 mark dir: marks can't persist -> fire record must NOT be
+        appended (WR-13: fire-append and read-gate must agree about marks) and
+        nothing may leak to stderr (WR-12: redirect order)."""
+        mark_dir = self.xdg / "claude-memory-recall"
+        mark_dir.mkdir(mode=0o500)
+        try:
+            rc, out, err = self._fire()
+        finally:
+            mark_dir.chmod(0o700)  # so tearDown can remove it
+        self.assertEqual(rc, 0)
+        self.assertNotEqual(out.strip(), "", "advisory must still emit (fail-open)")
+        self.assertEqual(err, "", "no stderr leak from failed mark writes (WR-12)")
+        self.assertFalse(self.tel.exists(),
+                         "fire with zero persisted marks must not be logged (WR-13)")
+
     # ── Gated/silent calls do not append ─────────────────────────────────────
     def test_silent_call_no_append(self):
         """A pure-generic Bash call that fires nothing must not append to telemetry."""

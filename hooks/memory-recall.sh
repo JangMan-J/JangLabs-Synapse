@@ -147,12 +147,18 @@ if [ -n "$ids" ]; then
       fi
     done
     [ "$fresh" -eq 1 ] || exit 0
+    # WR-12: 2>/dev/null must PRECEDE > (redirections apply left-to-right; a
+    # trailing 2>/dev/null leaks the EACCES from the > that already failed).
+    # WR-13: _marks_ok only when at least one mark actually persisted — a fire
+    # whose marks all failed to write is unreadable by the Read arm and must
+    # not be logged (fire-append and read-gate must agree about marks).
+    _wrote=0
     for id in $ids; do
       MARK="$DD/m_${id//[^A-Za-z0-9._-]/_}"
       [ -L "$MARK" ] && continue
-      : > "$MARK" 2>/dev/null || true
+      : 2>/dev/null > "$MARK" && _wrote=1
     done
-    _marks_ok=1
+    [ "$_wrote" -eq 1 ] && _marks_ok=1
   fi
 else
   _marks_ok=1   # no memory ids -> nothing to mark; mark state is irrelevant

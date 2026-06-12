@@ -879,10 +879,18 @@ def _acquire_maintenance_lock(memdir):
                 continue                # lock vanished between open and stat — retry create
             if age <= _MAINT_LOCK_STALE_SECS:
                 return None             # fresh lock: a concurrent pass is running
+            # WR-11: stat->unlink->create lets two reclaimers interleave (B can
+            # unlink A's FRESH lock). rename is atomic — exactly one reclaimer
+            # wins the corpse; the loser's rename raises ENOENT and defers.
+            corpse = lock_path.parent / (lock_path.name + f".reclaim.{os.getpid()}")
             try:
-                lock_path.unlink()      # stale corpse — reclaim, then retry create
+                os.rename(str(lock_path), str(corpse))
             except OSError:
-                return None
+                return None             # another session reclaimed first — defer
+            try:
+                corpse.unlink()
+            except OSError:
+                pass
         except OSError:
             return None                 # unwritable store etc. — mutations would fail anyway
     return None
