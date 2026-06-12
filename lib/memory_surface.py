@@ -893,12 +893,214 @@ def maintenance(memdir, shadow=False):
         if not shadow:
             print(summary)
             _update_maintenance_state(memdir)
+            # CUR-05: seat governance runs with the same telemetry, same D-40 cadence
+            try:
+                seats(memdir)
+            except Exception:  # noqa: BLE001 — fail open; seat errors must not block maintenance
+                pass
         return {"promoted": promoted, "demoted": demoted,
                 "zero_fire": zero_fire, "summary": summary,
                 "insufficient_evidence": not evidence_ok}
     except Exception:  # noqa: BLE001 — fail open; engine errors must not block SessionStart
         return {"promoted": [], "demoted": [], "zero_fire": [], "summary": "0 demoted, 0 promoted",
                 "insufficient_evidence": False}
+
+
+# ---------------------------------------------------------------- Seat governance (D-47/D-48)
+
+_SEAT_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^/)]+)\.md\)")  # store-relative only
+
+
+def _parse_seat_stems(memdir):
+    """Parse router seat stems from MEMORY.md (shared parsing rule with seat_probes.py).
+
+    Scans the '## Always-relevant entries' section for markdown-link targets
+    matching '*.md' basenames (no slashes — store-relative only).
+    Returns list of stem strings (filename without .md extension).
+    """
+    mem_md = memdir / "MEMORY.md"
+    if not mem_md.exists():
+        return []
+    stems = []
+    in_section = False
+    for line in mem_md.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## Always-relevant"):
+            in_section = True
+            continue
+        if in_section:
+            if stripped.startswith("## "):
+                break
+            m = _SEAT_LINK_RE.search(stripped)
+            if m:
+                stems.append(m.group(2))
+    return stems
+
+
+def _write_pending_block(memdir, proposals):
+    """Write or remove the PENDING-SEAT-CHANGES block at the top of MEMORY.md (D-48).
+
+    proposals: list of strings like 'DEMOTE: stem.md — reason' or 'PROMOTE: stem.md — reason'.
+    When proposals is empty, any existing pending block is stripped (idempotent removal).
+    The rest of MEMORY.md is byte-identical before and after (never truncated or rewritten).
+
+    This is the ONLY sanctioned writer of MEMORY.md in the engine; it must stay surgical.
+    Never accessed via _memory_files() — MEMORY.md is excluded from that iterator by design.
+    """
+    mem_md = memdir / "MEMORY.md"
+    if not mem_md.exists():
+        return
+
+    current = mem_md.read_text()
+    # Strip any existing pending block (delimiter-bounded, greedy to end of first -->)
+    stripped = re.sub(
+        r"<!-- PENDING-SEAT-CHANGES.*?-->[\n]*",
+        "",
+        current,
+        flags=re.DOTALL,
+    )
+
+    if not proposals:
+        # No proposals: write back stripped content (removes stale block if any)
+        if stripped != current:
+            write_atomic(mem_md, stripped)
+        return
+
+    # Build new pending block
+    today = datetime.date.today().isoformat()
+    lines = [f"<!-- PENDING-SEAT-CHANGES (automated, {today}) — review and delete this block to approve:"]
+    for p in proposals:
+        lines.append(f"  {p}")
+    lines.append("-->")
+    block = "\n".join(lines) + "\n"
+
+    write_atomic(mem_md, block + stripped)
+
+
+def seats(memdir):
+    """Seat governance engine subcommand (CUR-05, D-47/D-48).
+
+    Reads the probe sidecar (_seat_probe_results.json) and telemetry to build
+    demote/promote proposals, then writes the PENDING-SEAT-CHANGES block to
+    MEMORY.md (or removes it when no proposals).
+
+    Dual D-47 gate for demotion:
+    (a) probe sidecar shows covered:true for the seat
+    (b) telemetry shows fire_count >= 1 for the seat in the window
+    AND the evidence window is met (>= minEvidenceSessions OR >= minEvidenceDays).
+    Missing probe sidecar → zero demotions (fail-safe, T-03-24).
+
+    Promote candidates: non-seat memories with fire_count >= seatPromoteMinFires
+    AND read_rate >= promoteThreshold (in-window, window-gated).
+
+    Returns a result dict; always exception-proof (exit 0, no exception to caller).
+    """
+    try:
+        cfg = load_config(memdir)
+        window_days = cfg.get("telemetryWindowDays", 30)
+        min_sessions = cfg.get("minEvidenceSessions", 10)
+        min_days = cfg.get("minEvidenceDays", 30)
+        promote_thresh = cfg.get("promoteThreshold", 0.4)
+        seat_promote_min_fires = cfg.get("seatPromoteMinFires", 5)
+
+        # Read evidence window stats (session count + span)
+        tel_path = memdir / "_recall_telemetry.jsonl"
+        sessions, span_days = _evidence_stats(tel_path)
+        evidence_ok = (sessions >= min_sessions) or (span_days >= min_days)
+
+        if not evidence_ok:
+            result = {
+                "demote": [],
+                "promote": [],
+                "reason": (
+                    f"window unmet ({sessions} sessions, {span_days:.1f}d span; "
+                    f"need >={min_sessions} sessions or >={min_days}d)"
+                ),
+                "evidence_ok": False,
+            }
+            # Still attempt to remove a stale pending block when window unmet
+            _write_pending_block(memdir, [])
+            return result
+
+        # Load probe sidecar
+        probe_path = memdir / "_seat_probe_results.json"
+        if not probe_path.exists():
+            result = {
+                "demote": [],
+                "promote": [],
+                "reason": "no-probe-results",
+                "evidence_ok": True,
+            }
+            # Remove stale pending block if any
+            _write_pending_block(memdir, [])
+            return result
+
+        try:
+            probe_data = json.loads(probe_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            result = {
+                "demote": [],
+                "promote": [],
+                "reason": "probe-sidecar-unreadable",
+                "evidence_ok": True,
+            }
+            _write_pending_block(memdir, [])
+            return result
+
+        probe_results = probe_data.get("results", {})
+        seat_stems = set(_parse_seat_stems(memdir))
+
+        # Read windowed telemetry
+        fires, reads = _read_telemetry(tel_path, window_days)
+
+        # Build demote proposals: D-47 dual gate
+        demote_proposals = []
+        demote_stems = []
+        for stem, probe_r in probe_results.items():
+            covered = probe_r.get("covered", False)
+            fire_count = fires.get(stem, 0)
+            read_count = reads.get(stem, 0)
+            if covered and fire_count >= 1:
+                rate = read_count / fire_count if fire_count else 0.0
+                payload_ref = (probe_r.get("payload") or {}).get("tool_input", {})
+                cmd_or_path = (payload_ref.get("command") or payload_ref.get("file_path") or "?")
+                demote_proposals.append(
+                    f"DEMOTE: {stem}.md — fired {fire_count}x in window, "
+                    f"read {read_count}x (read_rate={rate:.2f}), "
+                    f"probe payload: {cmd_or_path!r}"
+                )
+                demote_stems.append(stem)
+
+        # Build promote proposals: non-seat memories meeting criteria
+        promote_proposals = []
+        promote_stems = []
+        for p in _memory_files(memdir):
+            stem = p.stem
+            if stem in seat_stems:
+                continue  # seats are demote candidates, not promote candidates here
+            fire_count = fires.get(stem, 0)
+            read_count = reads.get(stem, 0)
+            if fire_count >= seat_promote_min_fires:
+                rate = read_count / fire_count
+                if rate >= promote_thresh:
+                    promote_proposals.append(
+                        f"PROMOTE: {stem}.md — fired {fire_count}x, "
+                        f"read {read_count}x (read_rate={rate:.2f} >= {promote_thresh})"
+                    )
+                    promote_stems.append(stem)
+
+        # Write pending block (or remove if no proposals)
+        all_proposals = demote_proposals + promote_proposals
+        _write_pending_block(memdir, all_proposals)
+
+        return {
+            "demote": demote_stems,
+            "promote": promote_stems,
+            "reason": None,
+            "evidence_ok": True,
+        }
+    except Exception:  # noqa: BLE001 — fail open
+        return {"demote": [], "promote": [], "reason": "internal-error", "evidence_ok": False}
 
 
 def rebuild(memdir):
@@ -2306,6 +2508,23 @@ def main():
             print(json.dumps(result))
         except Exception:  # noqa: BLE001
             print("{}")
+        return 0
+    if cmd == "seats":
+        try:
+            result = seats(memdir)
+            demote_count = len(result.get("demote", []))
+            promote_count = len(result.get("promote", []))
+            reason = result.get("reason")
+            if reason == "no-probe-results":
+                print("seats: no probe results (run seat_probes.py first)")
+            elif reason and "window unmet" in reason:
+                print(f"seats: {reason}")
+            elif reason:
+                print(f"seats: {reason}")
+            else:
+                print(f"seats: {demote_count} demote, {promote_count} promote proposals")
+        except Exception:  # noqa: BLE001
+            print("seats: error (fail-open)")
         return 0
     if cmd in ("link", "unlink", "add-tag", "dismiss"):
         pos = _positionals()
