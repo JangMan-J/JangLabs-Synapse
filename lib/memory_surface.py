@@ -749,8 +749,10 @@ def _read_telemetry(tel_path, window_days):
                         fires[mid] = fires.get(mid, 0) + 1
             # Read-signal record: has signal == "read"
             elif rec.get("signal") == "read":
-                # Read signals: apply window only if ts is parseable; otherwise skip
-                if ts is not None and ts < cutoff:
+                # Same rule as fires (WR-05): drop records with unparseable ts.
+                # The old asymmetry (fires dropped, reads kept forever) inflated
+                # read_rate — bad-ts reads never aged out of the window.
+                if ts is None or ts < cutoff:
                     continue
                 mid = rec.get("id", "")
                 if mid:

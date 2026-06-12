@@ -818,6 +818,25 @@ class MaintenancePass(unittest.TestCase):
         self.assertIsInstance(state["lastPassLine"], int)
         self.assertGreater(state["lastPassLine"], 0)
 
+    # ── WR-05: unparseable-ts records dropped symmetrically (fires AND reads) ──
+    def test_unparseable_ts_read_records_dropped(self):
+        """A read record with an unparseable ts is dropped, same as a fire
+        (WR-05): the old asymmetry kept bad-ts reads forever, inflating
+        read_rate and masking legitimate demotions."""
+        fire_ok = _make_tel_record("mem-ts", _now_ts(), "fire")
+        read_bad = json.dumps({"ts": "not-a-timestamp", "id": "mem-ts", "signal": "read"})
+        fire_bad = json.dumps({"ts": "not-a-timestamp", "qid": "q_bad",
+                               "mems": [{"id": "mem-ts", "tag": "t", "type": "command",
+                                         "val": "test-cmd"}], "conf": "low"})
+        self._write_tel([fire_ok, read_bad, fire_bad])
+
+        fires, reads = ms._read_telemetry(self.tel, 30)
+
+        self.assertEqual(fires.get("mem-ts", 0), 1,
+                         "only the parseable-ts fire counts")
+        self.assertEqual(reads.get("mem-ts", 0), 0,
+                         "an unparseable-ts read must be dropped, not counted forever")
+
     # ── WR-04: the .1 rotation generation still feeds evidence + rates ────────
     def test_rotation_generation_included(self):
         """Records stranded in _recall_telemetry.jsonl.1 by a rotation still count:
