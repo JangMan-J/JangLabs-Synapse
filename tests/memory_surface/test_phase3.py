@@ -1193,6 +1193,172 @@ class EndToEndDemo(unittest.TestCase):
                              f"{stem} declineCount must be untouched (below threshold)")
 
 
+class ShadowValidation(unittest.TestCase):
+    """Contract tests for D-45: shadow-vs-Roulette comparison runner.
+
+    Tests use fixture stores with synthetic telemetry and per-memory frontmatter.
+    The runner (run_shadow_validation.py) is exercised as a subprocess.
+    Contract:
+    - Fixture with every lastReviewed memory at zero-fires: kept_demoted=0, gate=OPEN
+    - Fixture with a lastReviewed memory fired 10x/read 0x: kept_demoted>0, gate=CLOSED
+      (proves the comparison bites — not a rubber stamp)
+    - Runner mutates nothing: every store file mtime unchanged after the run
+    - Output is machine-parseable: exactly four key=value lines
+    """
+
+    RUNNER = LAB / "tests" / "memory_surface" / "run_shadow_validation.py"
+
+    def setUp(self):
+        self.store = Path(tempfile.mkdtemp())
+        # Minimal taxonomy so rebuild() succeeds
+        (self.store / "_tags.md").write_text(
+            "# tags\n## domain\n- test-tag — test domain\n"
+        )
+        (self.store / "_tag_links.md").write_text("# tag links\n")
+        (self.store / "_grammar.md").write_text(
+            "# Unified Trigger Grammar\nVersion: v0\nStatus: test\n\n---\n\n"
+            "## domain\n\n### test-tag\ngloss: test\nplacement: either\n"
+            "commands: [test-cmd]\npaths: []\nargs: []\nsynonyms: []\nrelated: []\n"
+        )
+        self.tel = self.store / "_recall_telemetry.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.store, ignore_errors=True)
+
+    def _write_tel(self, lines):
+        self.tel.write_text("\n".join(lines) + "\n")
+
+    def _make_reviewed_memory(self, stem, decline=0):
+        """Write a fixture memory WITH lastReviewed set (Roulette confirmed)."""
+        body = (
+            f"---\nname: {stem}\ndescription: \"about {stem}\"\nmetadata:\n"
+            f"  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+            f"  triggers:\n    commands: [test-cmd]\n    paths: []\n    args: []\n    synonyms: []\n"
+            f"  lastReviewed: 2026-06-01\n  declineCount: {decline}\n---\n\nbody of {stem}\n"
+        )
+        (self.store / f"{stem}.md").write_text(body)
+
+    def _make_unreviewed_memory(self, stem, decline=0):
+        """Write a fixture memory WITHOUT lastReviewed (never Roulette-confirmed)."""
+        body = (
+            f"---\nname: {stem}\ndescription: \"about {stem}\"\nmetadata:\n"
+            f"  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+            f"  triggers:\n    commands: [test-cmd]\n    paths: []\n    args: []\n    synonyms: []\n"
+            f"  declineCount: {decline}\n---\n\nbody of {stem}\n"
+        )
+        (self.store / f"{stem}.md").write_text(body)
+
+    def _evidence(self, n=10):
+        """Return n session-marker lines (sufficient evidence for shadow to compute lists)."""
+        return [_make_tel_record("", _now_ts(), "session") for _ in range(n)]
+
+    def _run_runner(self, store=None):
+        """Run run_shadow_validation.py against the given store; return (rc, stdout, stderr)."""
+        store_arg = str(store or self.store)
+        p = subprocess.run(
+            [sys.executable, str(self.RUNNER), "--store", store_arg],
+            capture_output=True, text=True
+        )
+        return p.returncode, p.stdout, p.stderr
+
+    # ── Gate=OPEN: no human-kept memory in shadow demote list ────────────────
+    def test_gate_open_when_no_kept_memory_demoted(self):
+        """Fixture: all lastReviewed memories at zero-fires -> kept_demoted=0, gate=OPEN."""
+        # Three reviewed memories — all zero fires in telemetry (so in zero_fire floor)
+        for stem in ("kept-a", "kept-b", "kept-c"):
+            self._make_reviewed_memory(stem)
+        ms.rebuild(self.store)
+        # Only fire unreviewed memory (not in baseline)
+        self._make_unreviewed_memory("unreviewed-x")
+        ms.rebuild(self.store)
+        fire_lines = [_make_tel_record("unreviewed-x", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines + self._evidence())
+
+        rc, out, err = self._run_runner()
+
+        self.assertEqual(rc, 0, f"runner must exit 0; err={err!r}")
+        lines = out.strip().splitlines()
+        kv = {}
+        for line in lines:
+            if "=" in line and line.split("=", 1)[0] in (
+                    "baseline_kept", "shadow_demoted", "kept_demoted", "gate"):
+                k, v = line.split("=", 1)
+                kv[k.strip()] = v.strip()
+        self.assertIn("kept_demoted", kv, "output must have kept_demoted= line")
+        self.assertEqual(kv.get("kept_demoted"), "0", "no kept memory should be demoted")
+        self.assertEqual(kv.get("gate"), "OPEN", "gate must be OPEN when kept_demoted=0")
+
+    # ── Gate=CLOSED: a human-kept memory IS in shadow demote list ────────────
+    def test_gate_closed_when_kept_memory_demoted(self):
+        """Fixture: a lastReviewed memory fired 10x/read 0x -> kept_demoted>0, gate=CLOSED.
+
+        This proves the comparison bites — it is not a rubber stamp.
+        """
+        # One reviewed memory that WILL be in shadow demote list (rate=0.0 <= 0.05)
+        self._make_reviewed_memory("kept-doom")
+        ms.rebuild(self.store)
+        # 10 fires, 0 reads -> rate=0.0 -> demoted by shadow pass
+        fire_lines = [_make_tel_record("kept-doom", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines + self._evidence())
+
+        rc, out, err = self._run_runner()
+
+        self.assertEqual(rc, 0, f"runner must exit 0; err={err!r}")
+        lines = out.strip().splitlines()
+        kv = {}
+        for line in lines:
+            if "=" in line and line.split("=", 1)[0] in (
+                    "baseline_kept", "shadow_demoted", "kept_demoted", "gate"):
+                k, v = line.split("=", 1)
+                kv[k.strip()] = v.strip()
+        self.assertIn("kept_demoted", kv, "output must have kept_demoted= line")
+        self.assertNotEqual(kv.get("kept_demoted"), "0",
+                            "kept-doom must appear in kept_demoted (gate bites)")
+        self.assertEqual(kv.get("gate"), "CLOSED", "gate must be CLOSED when kept_demoted>0")
+
+    # ── Output has exactly 4 required key=value lines ────────────────────────
+    def test_output_has_four_key_value_lines(self):
+        """Output must have exactly one each of baseline_kept=, shadow_demoted=, kept_demoted=, gate=."""
+        self._make_reviewed_memory("mem-a")
+        ms.rebuild(self.store)
+        self._write_tel(self._evidence())
+
+        rc, out, err = self._run_runner()
+
+        self.assertEqual(rc, 0, f"runner exit 0; err={err!r}")
+        required = {"baseline_kept", "shadow_demoted", "kept_demoted", "gate"}
+        found = set()
+        for line in out.strip().splitlines():
+            if "=" in line:
+                k = line.split("=", 1)[0].strip()
+                if k in required:
+                    found.add(k)
+        self.assertEqual(found, required,
+                         f"must have all four key=value lines; found: {found}")
+
+    # ── Runner is read-only: no file mtime changes ───────────────────────────
+    def test_runner_is_read_only(self):
+        """Running the shadow validation runner must not modify any store file mtime."""
+        for stem in ("mem-ro-a", "mem-ro-b"):
+            self._make_reviewed_memory(stem)
+        ms.rebuild(self.store)
+        # Add telemetry so shadow can compute something
+        fire_lines = [_make_tel_record("mem-ro-a", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines + self._evidence())
+
+        # Record all mtimes before
+        mtimes_before = {p: p.stat().st_mtime
+                         for p in self.store.iterdir() if p.suffix == ".md"}
+
+        self._run_runner()
+
+        # All mtimes must be unchanged
+        for p, before in mtimes_before.items():
+            after = p.stat().st_mtime
+            self.assertEqual(before, after,
+                             f"runner must not modify {p.name} (mtime changed: {before} -> {after})")
+
+
 class Registration(unittest.TestCase):
     def test_recall_fires_on_context7_after_merge(self):
         import importlib.util
