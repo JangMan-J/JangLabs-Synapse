@@ -134,7 +134,21 @@ Notes: Sequential waves — plans share `lib/memory_surface.py` and `tests/memor
   2. README, CLAUDE.md, the fragment, and findings accurately describe what actually exists; a fresh session reading them is not misled about any component
   3. The install layout (how files map into ~/.claude) is re-derived from the new core's needs, and a fresh `agent-harness.py install --apply` followed by `remove` is idempotent and symmetric — the single entry point, dry-run default, per-run backups all preserved
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — D-49 Roulette deletion (live symlinks first, D-54) + install manifest re-derivation (MEMORY_INFRA → {"_grammar.md"}) + verified install/status cycle
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — D-50 tag-links write-path excision in lockstep (engine + write-guard + catalog-refresh + tests, one plan) + D-51 dead-code sweep + p95 bench gate
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — Docs realignment from the drift tables (README/CLAUDE.md/fragment/findings) + SC-1 component-justification table + D-55 verbatim install/status/remove demonstration
+
+Notes: Sequential waves — the engine and hooks are LIVE via symlinks (one stateful box, no declared parallel-dispatch budget), docs must describe the post-surgery reality, and D-57 holds per wave: full suite green, p95 ≤55ms re-proven after read-path-adjacent changes. D-56: `memory/_grammar.md` and `memory/_tags.md` (another session's uncommitted work) are untouchable throughout — explicit-path staging only.
 
 ## Progress
 
@@ -146,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
 | 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
-| 4. Reorganization & Realignment | 0/TBD | Not started | - |
+| 4. Reorganization & Realignment | 0/3 | Not started | - |
 
 ## Coverage
 
@@ -165,3 +179,4 @@ All 20 v1 requirements mapped — no orphans, no duplicates.
 *Phase 1 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file + hooks-last safety ordering per D-18)*
 *Phase 2 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine file; MVR-gated flip last per D-30)*
 *Phase 3 planned: 2026-06-12 — 4 plans, 4 sequential waves (shared engine/tests; validation-gated retirement per D-45; probe-gated seat governance per D-47)*
+*Phase 4 planned: 2026-06-12 — 3 plans, 3 sequential waves (live-symlink shared state; D-50 lockstep in one plan; D-55 demonstration closes the milestone)*
