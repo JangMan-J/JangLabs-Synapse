@@ -484,6 +484,18 @@ def _old_ts(days=35):
     return ago.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _session_day_lines(n):
+    """n session markers on n distinct calendar days (newest = today).
+
+    WR-03: the evidence guard's session leg counts distinct session-DAYS, so
+    same-day SessionStart re-fires (resume/clear/compact) cannot inflate it —
+    fixtures that need the >=10 leg satisfied must spread markers across days.
+    """
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return [json.dumps({"ts": (now - _dt.timedelta(days=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "signal": "session"}) for i in range(n)]
+
+
 class MaintenancePass(unittest.TestCase):
     """Contract tests for D-40/D-41/D-42/D-43/D-45 automated maintenance pass.
 
@@ -540,8 +552,9 @@ class MaintenancePass(unittest.TestCase):
     # ── Minimum-evidence guard: no NON-SHADOW mutations until >=10 sessions
     #    OR >=30d observed span (premature-demotion class, caught live 2026-06-12) ──
     def _evidence(self, n=10):
-        """n session records — satisfies the minEvidenceSessions=10 default."""
-        return [_make_tel_record("", _now_ts(), "session") for _ in range(n)]
+        """n session markers across n distinct days — satisfies the
+        minEvidenceSessions=10 default (WR-03: distinct session-days)."""
+        return _session_day_lines(n)
 
     def test_insufficient_evidence_no_mutations(self):
         """Fires-without-reads but only 2 sessions, ~0d span -> NO demotion, flag set."""
@@ -563,7 +576,8 @@ class MaintenancePass(unittest.TestCase):
                          "no file may be touched under insufficient evidence")
 
     def test_evidence_by_sessions(self):
-        """10 session markers satisfy the guard even with ~0d span -> demotion proceeds."""
+        """10 session markers across 10 distinct days satisfy the guard with a
+        <30d span (the session-days leg, not the span leg) -> demotion proceeds."""
         _make_memory(self.store, "mem-evs", decline=0)
         ms.rebuild(self.store)
         lines = [_make_tel_record("mem-evs", _now_ts(), "fire", f"_{i}") for i in range(10)]
@@ -589,6 +603,28 @@ class MaintenancePass(unittest.TestCase):
 
         self.assertFalse(result.get("insufficient_evidence"))
         self.assertIn("mem-span", result["demoted"])
+
+    def test_same_day_session_markers_count_once(self):
+        """10 session markers on the SAME calendar day count as ONE session-day:
+        a single busy day of resume/compact/clear re-fires cannot satisfy the
+        >=10 leg and demote on <1 day of observation (WR-03 — the premature-decay
+        window stays closed against marker inflation)."""
+        _make_memory(self.store, "mem-sameday", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-sameday", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += [_make_tel_record("", _now_ts(), "session") for _ in range(10)]  # same day
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertTrue(result.get("insufficient_evidence"),
+                        "same-day marker inflation must not satisfy the guard")
+        self.assertEqual(result["demoted"], [])
+        self.assertIn("session-days", result["summary"],
+                      "summary must speak in session-days (honest wording)")
+        _, meta, _ = ms.parse_frontmatter((self.store / "mem-sameday.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "0")), "0",
+                         "no mutation on one calendar day of markers")
 
     def test_shadow_computes_lists_despite_insufficient_evidence(self):
         """Shadow mode (D-45 diagnostics) still computes would-be lists under thin
@@ -976,9 +1012,10 @@ def _make_fixture_store_with_telemetry(brain, n_fires=0):
                         "conf": "medium"})
             for i in range(n_fires)
         ]
-        # 10 session markers satisfy the minimum-evidence guard (>=10 sessions)
-        # so threshold-trigger tests exercise real mutations, not the deferral path.
-        lines += [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        # 10 session markers across 10 distinct days satisfy the minimum-evidence
+        # guard (WR-03) so threshold-trigger tests exercise real mutations, not
+        # the deferral path.
+        lines += _session_day_lines(10)
         tel_path.write_text("\n".join(lines) + "\n")
 
 
@@ -1189,9 +1226,9 @@ class EndToEndDemo(unittest.TestCase):
                                      "mems": [{"id": "memB", "tag": "test-tag",
                                                "type": "command", "val": "test-cmd"}],
                                      "conf": "medium"}))
-        # Pad to >= 50 total records (session + fire records count for threshold)
-        for i in range(34):
-            lines.append(json.dumps({"ts": ts, "signal": "session"}))
+        # Pad to >= 50 total records (session + fire records count for threshold);
+        # markers span 34 distinct days so the evidence guard is met (WR-03).
+        lines += _session_day_lines(34)
 
         (self.brain / "_recall_telemetry.jsonl").write_text("\n".join(lines) + "\n")
 
@@ -1332,8 +1369,9 @@ class ShadowValidation(unittest.TestCase):
         (self.store / f"{stem}.md").write_text(body)
 
     def _evidence(self, n=10):
-        """Return n session-marker lines (sufficient evidence for shadow to compute lists)."""
-        return [_make_tel_record("", _now_ts(), "session") for _ in range(n)]
+        """Return n session markers across n distinct days (sufficient evidence
+        for shadow to compute lists — WR-03: distinct session-days)."""
+        return _session_day_lines(n)
 
     def _run_runner(self, store=None):
         """Run run_shadow_validation.py against the given store; return (rc, stdout, stderr)."""
@@ -1680,7 +1718,7 @@ class SeatGovernance(unittest.TestCase):
                         "conf": "medium"})
             for i in range(5)
         ]
-        tel_lines += [json.dumps({"ts": ts, "signal": "session"}) for _ in range(12)]
+        tel_lines += _session_day_lines(12)
         (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
         # No _seat_probe_results.json written
 
@@ -1692,7 +1730,8 @@ class SeatGovernance(unittest.TestCase):
 
     # ── Governance: window unmet → refuse with numbers ───────────────────────
     def test_governance_window_unmet_refusal(self):
-        """seats() with 3 sessions / 5-day span → refused; result includes session count and span."""
+        """seats() with 3 same-day markers (= 1 session-day, WR-03) and a thin span
+        → refused; result includes the session-day count and span."""
         _make_seat_store(self.store, seats=[("seat-h", "command:probe-cmd")])
         # Write probe sidecar with covered:true
         probe_data = {
@@ -1715,8 +1754,8 @@ class SeatGovernance(unittest.TestCase):
 
         result = ms.seats(self.store)
         self.assertEqual(result.get("demote", []), [], "window unmet → no demote proposals")
-        self.assertIn("sessions", str(result).lower(),
-                      "refusal must mention sessions in result")
+        self.assertIn("session-day", str(result).lower(),
+                      "refusal must mention session-days in result (WR-03 wording)")
 
     # ── Governance: window met + covered + fires → DEMOTE proposal ───────────
     def test_governance_demote_proposal_on_met_window(self):
@@ -1736,7 +1775,7 @@ class SeatGovernance(unittest.TestCase):
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         # Sufficient evidence: 10 sessions, fires for seat-demote
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-demote", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],
@@ -1760,7 +1799,7 @@ class SeatGovernance(unittest.TestCase):
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
 
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         # 5 fires, 3 reads → rate=0.6 >= 0.4 promoteThreshold; fires >= seatPromoteMinFires=5
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "hot-mem", "tag": "test-tag",
@@ -1789,7 +1828,7 @@ class SeatGovernance(unittest.TestCase):
         }
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-p", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],
@@ -1818,7 +1857,7 @@ class SeatGovernance(unittest.TestCase):
         }
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-idem", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],
@@ -1840,7 +1879,7 @@ class SeatGovernance(unittest.TestCase):
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
         (self.store / "_recall_telemetry.jsonl").write_text(
-            "\n".join([json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]) + "\n"
+            "\n".join(_session_day_lines(10)) + "\n"
         )
         original_md = (self.store / "MEMORY.md").read_text()
 
@@ -1866,7 +1905,7 @@ class SeatGovernance(unittest.TestCase):
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
         (self.store / "_recall_telemetry.jsonl").write_text(
-            "\n".join([json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]) + "\n"
+            "\n".join(_session_day_lines(10)) + "\n"
         )
 
         ms.seats(self.store)
@@ -1891,7 +1930,7 @@ class SeatGovernance(unittest.TestCase):
         }
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-bi", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],
@@ -1943,7 +1982,7 @@ class SeatGovernance(unittest.TestCase):
         }
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-maint", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],
@@ -1972,7 +2011,7 @@ class SeatGovernance(unittest.TestCase):
         }
         (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
         ts = _now_ts()
-        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines = _session_day_lines(10)
         tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
                                    "mems": [{"id": "seat-shadow", "tag": "test-tag",
                                              "type": "command", "val": "probe-cmd"}],

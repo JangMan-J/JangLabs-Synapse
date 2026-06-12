@@ -748,9 +748,16 @@ def _read_telemetry(tel_path, window_days):
 
 
 def _evidence_stats(tel_path):
-    """Return (session_count, span_days) across ALL telemetry records.
+    """Return (session_days, span_days) across ALL telemetry records.
 
-    session_count: total {signal:"session"} SessionStart markers (03-02 Block 1).
+    session_days: number of DISTINCT calendar days (UTC) carrying at least one
+    {signal:"session"} SessionStart marker (03-02 Block 1). Dedupe-per-day
+    (WR-03): the hook appends a marker on EVERY SessionStart event — including
+    resume/clear/compact re-fires — so the raw marker count is inflated; one
+    busy working day could satisfy a >=10 "sessions" guard in hours and reopen
+    the premature-decay window. Counting distinct days makes the leg mean
+    sustained observation. Markers with unparseable ts are dropped (they
+    cannot be assigned a day).
     span_days: days between the oldest parseable ts anywhere in the file and now.
 
     The D-41 window caps the LOOKBACK for rate computation; this measures whether
@@ -760,7 +767,7 @@ def _evidence_stats(tel_path):
     on 2026-06-12: 22 demotions from <1 day of data).
     Fail-open: missing/unreadable file -> (0, 0.0).
     """
-    sessions, oldest = 0, None
+    session_days, oldest = set(), None
     try:
         if not tel_path.exists():
             return 0, 0.0
@@ -772,8 +779,6 @@ def _evidence_stats(tel_path):
                 rec = json.loads(line)
             except (json.JSONDecodeError, ValueError):
                 continue
-            if rec.get("signal") == "session":
-                sessions += 1
             ts_raw = rec.get("ts", "")
             try:
                 if isinstance(ts_raw, (int, float)):
@@ -782,14 +787,16 @@ def _evidence_stats(tel_path):
                     ts = datetime.datetime.fromisoformat(str(ts_raw).rstrip("Z") + "+00:00")
             except (ValueError, TypeError, OSError):
                 continue
+            if rec.get("signal") == "session":
+                session_days.add(ts.date())
             if oldest is None or ts < oldest:
                 oldest = ts
     except OSError:
         return 0, 0.0
     if oldest is None:
-        return sessions, 0.0
+        return len(session_days), 0.0
     span = (datetime.datetime.now(datetime.timezone.utc) - oldest).total_seconds() / 86400.0
-    return sessions, max(span, 0.0)
+    return len(session_days), max(span, 0.0)
 
 
 def _apply_score_delta(p, memdir, direction):
@@ -922,7 +929,8 @@ def maintenance(memdir, shadow=False, recheck=False):
     rate computation to avoid ZeroDivisionError.
 
     Minimum-evidence guard: NON-SHADOW mutations require >=minEvidenceSessions
-    session markers OR >=minEvidenceDays observed span (same standard as D-47
+    distinct session-DAYS (WR-03: markers deduped per calendar day, so re-fire
+    inflation cannot satisfy the leg) OR >=minEvidenceDays observed span (same standard as D-47
     seat governance). Shadow mode still computes the would-be lists for D-45
     diagnostics but carries insufficient_evidence=True so consumers know the
     real pass would defer.
@@ -948,12 +956,12 @@ def maintenance(memdir, shadow=False, recheck=False):
         min_days = cfg.get("minEvidenceDays", 30)
 
         tel_path = memdir / "_recall_telemetry.jsonl"
-        sessions, span_days = _evidence_stats(tel_path)
-        evidence_ok = (sessions >= min_sessions) or (span_days >= min_days)
+        session_days, span_days = _evidence_stats(tel_path)
+        evidence_ok = (session_days >= min_sessions) or (span_days >= min_days)
         if not evidence_ok and not shadow:
-            summary = (f"insufficient evidence ({sessions} sessions, "
+            summary = (f"insufficient evidence ({session_days} session-days, "
                        f"{span_days:.1f}d observed; mutations deferred until "
-                       f">={min_sessions} sessions or >={min_days}d)")
+                       f">={min_sessions} session-days or >={min_days}d)")
             print(summary)
             _update_maintenance_state(memdir)
             return {"promoted": [], "demoted": [], "zero_fire": [],
@@ -1110,18 +1118,18 @@ def seats(memdir):
         promote_thresh = cfg.get("promoteThreshold", 0.4)
         seat_promote_min_fires = cfg.get("seatPromoteMinFires", 5)
 
-        # Read evidence window stats (session count + span)
+        # Read evidence window stats (distinct session-days + span)
         tel_path = memdir / "_recall_telemetry.jsonl"
-        sessions, span_days = _evidence_stats(tel_path)
-        evidence_ok = (sessions >= min_sessions) or (span_days >= min_days)
+        session_days, span_days = _evidence_stats(tel_path)
+        evidence_ok = (session_days >= min_sessions) or (span_days >= min_days)
 
         if not evidence_ok:
             result = {
                 "demote": [],
                 "promote": [],
                 "reason": (
-                    f"window unmet ({sessions} sessions, {span_days:.1f}d span; "
-                    f"need >={min_sessions} sessions or >={min_days}d)"
+                    f"window unmet ({session_days} session-days, {span_days:.1f}d span; "
+                    f"need >={min_sessions} session-days or >={min_days}d)"
                 ),
                 "evidence_ok": False,
             }

@@ -41,8 +41,10 @@ ROUTER="$BRAIN/MEMORY.md"
 
 # Block 1 — session marker (D-40 / 03-04's evidence-window counter).
 # Append {ts,signal:"session"} to track session count for the maintenance trigger.
-# Note: resume/clear/compact re-fires inflate the count — 03-04 treats it as an
-# upper-bound session proxy, not an exact session count.
+# Note: resume/clear/compact re-fires append extra markers; the engine's evidence
+# guard dedupes markers per calendar DAY (WR-03), so a busy day of re-fires still
+# counts as ONE session-day of evidence. The raw line count below remains an
+# upper-bound proxy used only for the cheap trigger threshold, not the guard.
 _bf_tel="$BRAIN/_recall_telemetry.jsonl"
 if [ ! -L "$_bf_tel" ]; then
   TZ=UTC0 printf -v _bf_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
