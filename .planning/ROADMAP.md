@@ -160,7 +160,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
 | 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
-| 4. Reorganization & Realignment | 3/3 | Complete   | 2026-06-12 |
+| 4. Reorganization & Realignment | 3/3 | Complete    | 2026-06-12 |
 
 ## Coverage
 
