@@ -34,15 +34,18 @@ command -v realpath >/dev/null 2>&1 && STORE=$(realpath -sm -- "$STORE" 2>/dev/n
 # Unit separator (0x1f) is used as delimiter — safe for all field values (paths,
 # commands, tool names never contain 0x1f). Fail-open: jq error → all vars empty.
 # `read` stops at the first newline, and tool_input.command is routinely multiline —
-# so newlines in the command are flattened to spaces INSIDE the same jq spawn. The
-# cheap gate below only does first-word + substring scans, so the flattened string
-# gates identically to the old full multiline string (D-28 semantics preserved).
+# so newlines in the command are flattened INSIDE the same jq spawn. They flatten to
+# "; " (not space): \n is a shell command separator exactly like ';', so a multiline
+# command then gates identically to its semicolon-compound equivalent — 'ls\nfoo'
+# becomes 'ls; foo', whose first word 'ls;' is not in the generic list, so it reaches
+# the engine just as 'ls; foo' always did (D-28 semantics; never gates out a payload
+# the engine could fire on).
 _US=$(printf '\x1f')
 IFS="$_US" read -r tool path cwd cmd <<< "$(
   printf '%s' "$input" | jq -r \
     --arg sep "$_US" \
     '[.tool_name // "", .tool_input.file_path // .tool_input.path // "", .cwd // "",
-      (.tool_input.command // "" | gsub("\n"; " "))] | join($sep)' \
+      (.tool_input.command // "" | gsub("\n"; "; "))] | join($sep)' \
     2>/dev/null || true
 )"
 
