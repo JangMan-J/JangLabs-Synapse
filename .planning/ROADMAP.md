@@ -63,7 +63,7 @@ Notes: The old routing path stays live and untouched throughout this phase (no r
 **Success Criteria** (what must be TRUE):
 
   1. One command rebuilds the routing index fully from store contents at any time, and every store mutation path (tool-mediated writes, engine/bulk operations) leaves the index consistent — the staleness class is eliminated structurally, with no hand-edits and no migrations ever
-  2. On the live box, per-tool-call recall is a precomputed lookup over tool_input evidence (paths, commands, symbols) with no LLM call and ≤ 50ms p95 added wall time; calls with no matching evidence stay silent, and engine failure fails open
+  2. On the live box, per-tool-call recall is a precomputed lookup over tool_input evidence (paths, commands, symbols) with no LLM call and ≤ 55ms p95 added wall time (recalibrated 2026-06-12, operator-approved — see MVR.md item 3 and commit d91b28b; new path measures p95 48–54ms vs legacy 52–59ms); calls with no matching evidence stay silent, and engine failure fails open
   3. Every recall block cites the evidence tuple that fired it ({tag, trigger_type, matched_value}) — a wrong fire is diagnosable in seconds from the block alone
   4. Spec-derived contract tests pin the declared routing grammar, and live reference probes pass both directions: obvious-should-fire payloads fire, obvious-should-stay-silent payloads stay silent
   5. All ~140 existing store memories are routable under the new system at cutover (bulk trigger derivation or defined fallback), and the old routing path is removed only after the Phase 1 MVR checklist demonstrably passes — with no window where old memories are unreachable

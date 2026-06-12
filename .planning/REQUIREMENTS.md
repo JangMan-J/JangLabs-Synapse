@@ -12,11 +12,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **CORE-01**: A tag is defined by its evidence patterns in one unified artifact — vocabulary, routing rules, and tag links collapse into a single source under one grammar covering both tag-level evidence (shared domain patterns) and per-memory triggers; a tag without observable triggers cannot exist (schema-enforced)
 - [x] **CORE-02**: Saving a memory derives its trigger patterns at write time, while the authoring model is in-context — triggers are embedded at save, not assigned later
 - [x] **CORE-03**: The routing index is a build artifact compiled from the store — one command rebuilds it fully at any time; it is never hand-edited and never needs migration
-- [x] **CORE-04**: Per-tool-call recall is a precomputed lookup routed on behavioral evidence (paths touched, commands run, symbols named) parsed from tool_input — no LLM call, no embeddings; added wall time ≤ 50ms p95 per tool call on this box (measured baseline: 28–51ms)
+- [x] **CORE-04**: Per-tool-call recall is a precomputed lookup routed on behavioral evidence (paths touched, commands run, symbols named) parsed from tool_input — no LLM call, no embeddings; added wall time ≤ 55ms p95 per tool call on this box (recalibrated 2026-06-12, operator-approved, commit d91b28b — original ≤50ms came from a stale 28–51ms baseline; live legacy path re-measured 52–59ms, new path measures p95 48–54ms)
 - [x] **CORE-05**: Every recall block cites the evidence tuple that fired it ({tag, trigger_type, matched_value}) — a wrong fire is diagnosable in seconds
 - [x] **CORE-06**: Recall fires only above a confidence threshold — silence is the default; advisory posture and fail-open behavior preserved
 - [x] **CORE-07**: A new memory is deduplicated/consolidated against the store before trigger derivation — the store stays canonical
-- [ ] **CORE-08**: Every store mutation path — tool-mediated writes, engine/game mutations, bulk operations — leaves the routing index consistent; the staleness class is eliminated structurally, not patched per-path
+- [x] **CORE-08**: Every store mutation path — tool-mediated writes, engine/game mutations, bulk operations — leaves the routing index consistent; the staleness class is eliminated structurally, not patched per-path
 - [x] **CORE-09**: The routing grammar ships with spec-derived contract tests and live reference probes (obvious-should-fire and obvious-should-stay-silent cases) — tests pin the declared spec, never the implementation
 
 ### Migration
@@ -80,7 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-04 | Phase 2 | Complete |
 | CORE-05 | Phase 2 | Complete |
 | CORE-06 | Phase 2 | Complete |
-| CORE-08 | Phase 2 | Pending |
+| CORE-08 | Phase 2 | Complete |
 | CORE-09 | Phase 2 | Complete |
 | MIG-02 | Phase 2 | Complete |
 | CUR-01 | Phase 3 | Pending |
