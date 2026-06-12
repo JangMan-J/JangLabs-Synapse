@@ -30,6 +30,57 @@ ROUTER="$BRAIN/MEMORY.md"
 [ -r "$ROUTER" ] || exit 0                              # no router -> nothing to floor
 [ -e "$BRAIN/.surface-disabled" ] && exit 0            # shared kill-switch
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Blocks 1 and 2 run BEFORE the at-$HOME skip below.
+# Rationale: D-40 locks only the trigger mechanism (SessionStart via this hook).
+# Running the session marker and maintenance pass for $HOME-launched sessions is
+# strictly better; the D-44 summary is informational and simply discarded when
+# no floor block is emitted. This deviates from RESEARCH Q6's step-4 suggestion
+# but is the correct placement per CUR-03 (all sessions contribute to telemetry).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Block 1 — session marker (D-40 / 03-04's evidence-window counter).
+# Append {ts,signal:"session"} to track session count for the maintenance trigger.
+# Note: resume/clear/compact re-fires inflate the count — 03-04 treats it as an
+# upper-bound session proxy, not an exact session count.
+_bf_tel="$BRAIN/_recall_telemetry.jsonl"
+if [ ! -L "$_bf_tel" ]; then
+  TZ=UTC0 printf -v _bf_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  printf '{"ts":"%s","signal":"session"}\n' "$_bf_ts" >> "$_bf_tel" 2>/dev/null || true
+fi
+
+# Block 2 — maintenance trigger (D-40): threshold-gated with 2s hard cap.
+# Use jq for state/config reads (already a hook dependency); avoids a Python
+# spawn on the no-op path (every session with insufficient new records).
+_maint_summary=""
+if [ -f "$_bf_tel" ]; then
+  _bf_cur=$(wc -l < "$_bf_tel" 2>/dev/null || echo 0)
+  # Sanitize to digits
+  case "$_bf_cur" in ''|*[!0-9]*) _bf_cur=0 ;; esac
+  _bf_state="$BRAIN/_maintenance_state.json"
+  _bf_cfg="$BRAIN/_memory_surface_config.json"
+  _bf_last=$(jq -r '.lastPassLine // 0' "$_bf_state" 2>/dev/null || echo 0)
+  _bf_thresh=$(jq -r '.maintenanceTriggerCount // 50' "$_bf_cfg" 2>/dev/null || echo 50)
+  # Sanitize all values to digits
+  case "$_bf_last"   in ''|*[!0-9]*) _bf_last=0   ;; esac
+  case "$_bf_thresh" in ''|*[!0-9]*) _bf_thresh=50 ;; esac
+  _bf_new=$(( _bf_cur - _bf_last ))
+  # Rotation-reset: if delta is negative (telemetry rotated), treat new = cur lines
+  if [ "$_bf_new" -lt 0 ]; then
+    _bf_new=$_bf_cur
+  fi
+  if [ "$_bf_new" -ge "$_bf_thresh" ]; then
+    # Resolve ENGINE via readlink-f SELF pattern (from memory-catalog-refresh.sh)
+    SELF_FLOOR=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
+    ENGINE_FLOOR="$(dirname "$SELF_FLOOR")/../lib/memory_surface.py"
+    if [ -r "$ENGINE_FLOOR" ]; then
+      # D-40: hard 2-second cap; write_atomic os.replace guarantees
+      # a kill never lands partial frontmatter (T-03-13).
+      _maint_summary=$(timeout 2 python3 "$ENGINE_FLOOR" maintenance 2>/dev/null || true)
+    fi
+  fi
+fi
+
 input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)
 [ -n "$cwd" ] || cwd="${PWD:-}"
@@ -60,6 +111,15 @@ body=$(head -n 200 -- "$ROUTER" 2>/dev/null) || exit 0
 # memory-recall.sh's mode="required"->"advisory" rewrite. Tag name only (no '/') so there is
 # no bash pattern-escaping footgun, and it can't touch the wrapper tags added below.
 body=${body//base-memory-floor/base-memory_floor}
+
+# D-44: inject maintenance summary line into the floor block when a pass ran.
+# The summary is appended to $body so it sits inside the <base-memory-floor> wrapper.
+if [ -n "$_maint_summary" ]; then
+  TZ=UTC0 printf -v _bf_date '%(%Y-%m-%d)T' -1
+  body="${body}
+
+Maintenance (${_bf_date}): ${_maint_summary}"
+fi
 
 floor=$(printf '<base-memory-floor store="%s">\nAlways-loaded box-brain memory floor — present in every session regardless of cwd; entry links below are relative to the store path above. The active repo memory store, if any, loads separately and adds to this. Tag-routed recall (memory-recall.sh) surfaces the rest on demand.\n\n%s\n</base-memory-floor>' "$BRAIN" "$body")
 
