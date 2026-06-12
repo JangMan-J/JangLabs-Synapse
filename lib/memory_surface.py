@@ -695,6 +695,145 @@ def compile_trigger_index(grammar, memories_meta):
     return trigger_index, recall_vocab, routable
 
 
+# ---------------------------------------------------------------- maintenance pass (Phase 3, Plan 02)
+
+def _read_telemetry(tel_path, window_days):
+    """Parse _recall_telemetry.jsonl; return ({id: fire_count}, {id: read_count}).
+
+    Only includes records within the last window_days (rectangular window — D-41).
+    Fire records have a "qid" key; read records have signal=="read".
+    Session records ({signal:"session"}) and malformed lines are silently skipped.
+    Supports both ISO-8601 UTC strings (e.g. '2026-06-12T10:00:00Z') and epoch integers.
+    """
+    fires, reads = {}, {}
+    if not tel_path.exists():
+        return fires, reads
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=window_days)
+    for line in tel_path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        # Parse timestamp (defensive: ISO-8601 or epoch integer)
+        ts_raw = rec.get("ts", "")
+        try:
+            if isinstance(ts_raw, (int, float)):
+                ts = datetime.datetime.fromtimestamp(ts_raw, tz=datetime.timezone.utc)
+            else:
+                ts = datetime.datetime.fromisoformat(str(ts_raw).rstrip("Z") + "+00:00")
+        except (ValueError, TypeError, OSError):
+            ts = None
+        # Fire record: has "qid" key
+        if "qid" in rec:
+            if ts is None or ts < cutoff:
+                continue
+            for mem in (rec.get("mems") or []):
+                mid = mem.get("id", "")
+                if mid:
+                    fires[mid] = fires.get(mid, 0) + 1
+        # Read-signal record: has signal == "read"
+        elif rec.get("signal") == "read":
+            # Read signals: apply window only if ts is parseable; otherwise skip
+            if ts is not None and ts < cutoff:
+                continue
+            mid = rec.get("id", "")
+            if mid:
+                reads[mid] = reads.get(mid, 0) + 1
+        # Other records (signal:"session", unknown) silently skipped
+    return fires, reads
+
+
+def _apply_score_delta(p, memdir, direction):
+    """Increment or clear declineCount in frontmatter (D-42).
+
+    MUST use generate_frontmatter(), NEVER _review_game.py's deprecated writer
+    (which silently drops triggers: — Pitfall D).
+    direction: 'demote' -> declineCount += 1; 'promote' -> declineCount = '0'.
+    """
+    raw = p.read_text()
+    top, meta, body = parse_frontmatter(raw)
+    try:
+        count = int(str(meta.get("declineCount", 0)).strip() or 0)
+    except ValueError:
+        count = 0
+    if direction == "demote":
+        meta["declineCount"] = str(count + 1)
+    else:  # promote
+        meta["declineCount"] = "0"
+    write_atomic(p, generate_frontmatter(top, meta, body))
+
+
+def _update_maintenance_state(memdir):
+    """Write _maintenance_state.json with current telemetry line count and ISO UTC timestamp."""
+    tel_path = memdir / "_recall_telemetry.jsonl"
+    state_path = memdir / "_maintenance_state.json"
+    try:
+        cur_lines = sum(1 for _ in tel_path.open()) if tel_path.exists() else 0
+    except OSError:
+        cur_lines = 0
+    state = {
+        "lastPassLine": cur_lines,
+        "lastPassTs": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    write_atomic(state_path, json.dumps(state))
+
+
+def maintenance(memdir, shadow=False):
+    """Run the automated maintenance pass (D-40/D-41/D-42/D-43).
+
+    shadow=True: compute promote/demote/zero_fire without writing any file (D-45).
+    Returns {promoted, demoted, zero_fire, summary} dict.
+    Non-shadow prints the summary line to stdout (for memory-base-floor.sh capture).
+    Wraps all internal errors to fail open — no exception propagates to the caller.
+
+    D-43 rare-critical floor: memories with ZERO fires in the telemetry window are
+    NEVER demoted. Only fired-but-never-read memories decay. The guard precedes all
+    rate computation to avoid ZeroDivisionError.
+    """
+    try:
+        cfg = load_config(memdir)
+        promote_thresh = cfg.get("promoteThreshold", 0.4)
+        demote_thresh = cfg.get("demoteThreshold", 0.05)
+        window_days = cfg.get("telemetryWindowDays", 30)
+
+        tel_path = memdir / "_recall_telemetry.jsonl"
+        fires, reads = _read_telemetry(tel_path, window_days)
+
+        promoted, demoted, zero_fire = [], [], []
+        for p in _memory_files(memdir):
+            stem = p.stem
+            fire_count = fires.get(stem, 0)
+            read_count = reads.get(stem, 0)
+
+            # D-43: zero-fire floor — never demote zero-fire memories.
+            # This guard PRECEDES rate computation to avoid ZeroDivisionError.
+            if fire_count == 0:
+                zero_fire.append(stem)
+                continue
+
+            rate = read_count / fire_count
+            if rate >= promote_thresh:
+                promoted.append(stem)
+                if not shadow:
+                    _apply_score_delta(p, memdir, direction="promote")
+            elif rate <= demote_thresh:
+                demoted.append(stem)
+                if not shadow:
+                    _apply_score_delta(p, memdir, direction="demote")
+
+        summary = f"{len(demoted)} demoted, {len(promoted)} promoted"
+        if not shadow:
+            print(summary)
+            _update_maintenance_state(memdir)
+        return {"promoted": promoted, "demoted": demoted,
+                "zero_fire": zero_fire, "summary": summary}
+    except Exception:  # noqa: BLE001 — fail open; engine errors must not block SessionStart
+        return {"promoted": [], "demoted": [], "zero_fire": [], "summary": "0 demoted, 0 promoted"}
+
+
 def rebuild(memdir):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
@@ -2087,6 +2226,19 @@ def main():
         return rc
     if cmd == "router-template":
         sys.stdout.write(ROUTER_TEMPLATE)
+        return 0
+    if cmd == "maintenance":
+        try:
+            maintenance(memdir)
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
+    if cmd == "maintenance-shadow":
+        try:
+            result = maintenance(memdir, shadow=True)
+            print(json.dumps(result))
+        except Exception:  # noqa: BLE001
+            print("{}")
         return 0
     if cmd in ("link", "unlink", "add-tag", "dismiss"):
         pos = _positionals()
