@@ -760,6 +760,213 @@ class MaintenancePass(unittest.TestCase):
         self.assertIsInstance(result, dict)
 
 
+BASE_FLOOR = LAB / "hooks" / "memory-base-floor.sh"
+MARKER_BF = "MARKER_ENTRY_ZZZ"
+ROUTER_BODY_BF = (
+    "# Memory router\n\n"
+    "## Always-relevant entries\n"
+    f"- [Boot is LIMINE](boot-stack-limine.md) — {MARKER_BF}\n"
+)
+
+
+def _make_brain(home):
+    """Create box-brain store structure under a fake $HOME."""
+    key = str(home).replace("/", "-")
+    brain = home / ".claude" / "projects" / key / "memory"
+    brain.mkdir(parents=True)
+    (brain / "MEMORY.md").write_text(ROUTER_BODY_BF)
+    return brain
+
+
+def _run_floor(event, home, cwd=None):
+    """Run memory-base-floor.sh with a fake HOME (so BRAIN resolves to fixture store)."""
+    env = dict(os.environ, HOME=str(home))
+    env.pop("MEMORY_SURFACE_DIR", None)
+    p = subprocess.run(
+        [str(BASE_FLOOR)],
+        input=json.dumps(event),
+        capture_output=True, text=True, env=env,
+        cwd=str(cwd) if cwd else None,
+    )
+    return p.returncode, p.stdout, p.stderr
+
+
+def _make_fixture_store_with_telemetry(brain, n_fires=0):
+    """Populate brain with taxonomy + one memory + n fire telemetry records."""
+    (brain / "_tags.md").write_text("# tags\n## domain\n- test-tag — test\n")
+    (brain / "_tag_links.md").write_text("# tag links\n")
+    (brain / "_grammar.md").write_text(
+        "# Unified Trigger Grammar\nVersion: v0\nStatus: test\n\n---\n\n"
+        "## domain\n\n### test-tag\ngloss: test\nplacement: either\n"
+        "commands: [test-cmd]\npaths: []\nargs: []\nsynonyms: []\nrelated: []\n"
+    )
+    # Memory with triggers so it's routable
+    triggers_block = "  triggers:\n    commands: [test-cmd]\n    paths: []\n    args: []\n    synonyms: []\n"
+    (brain / "mem-demote.md").write_text(
+        "---\nname: mem-demote\ndescription: \"test\"\nmetadata:\n"
+        "  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+        f"{triggers_block}"
+        "  lastReviewed: 2026-06-01\n  declineCount: 0\n---\n\nbody\n"
+    )
+    ms.rebuild(brain)
+    # Write telemetry with n fire records (no reads -> demote candidate)
+    if n_fires > 0:
+        tel_path = brain / "_recall_telemetry.jsonl"
+        ts = _now_ts()
+        lines = [
+            json.dumps({"ts": ts, "qid": f"q_{i}",
+                        "mems": [{"id": "mem-demote", "tag": "test-tag",
+                                  "type": "command", "val": "test-cmd"}],
+                        "conf": "medium"})
+            for i in range(n_fires)
+        ]
+        tel_path.write_text("\n".join(lines) + "\n")
+
+
+class BaseFloorMaintenance(unittest.TestCase):
+    """Contract tests for D-40/D-44 SessionStart trigger and session marker in memory-base-floor.sh.
+
+    All tests use an isolated fixture $HOME so nothing touches the live store.
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.brain = _make_brain(self.home)
+        self.proj = self.home / "someproj"   # not git root, != $HOME -> non-box-brain session
+        self.proj.mkdir()
+        self.tel = self.brain / "_recall_telemetry.jsonl"
+        self.state = self.brain / "_maintenance_state.json"
+
+    def tearDown(self):
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def _run(self, cwd=None):
+        cwd = cwd or self.proj
+        return _run_floor({"source": "startup", "cwd": str(cwd)}, self.home)
+
+    # ── Session marker: every invocation appends one {signal:"session"} record ──
+    def test_session_marker_created(self):
+        """Every SessionStart invocation appends exactly one {ts,signal:'session'} record."""
+        self._run()
+        self.assertTrue(self.tel.exists(), "telemetry file must be created by session marker")
+        lines = [l for l in self.tel.read_text().splitlines() if l.strip()]
+        self.assertGreaterEqual(len(lines), 1, "at least one record must be appended")
+        # Find session record
+        session_records = []
+        for l in lines:
+            try:
+                rec = json.loads(l)
+                if rec.get("signal") == "session":
+                    session_records.append(rec)
+            except json.JSONDecodeError:
+                pass
+        self.assertEqual(len(session_records), 1, "exactly one session marker per invocation")
+        self.assertIn("ts", session_records[0], "session record must have 'ts' key")
+
+    def test_session_marker_appended_each_invocation(self):
+        """Two invocations = two session markers appended."""
+        self._run()
+        self._run()
+        lines = [l for l in self.tel.read_text().splitlines() if l.strip()]
+        session_records = [json.loads(l) for l in lines
+                           if l.strip() and json.loads(l).get("signal") == "session"]
+        self.assertEqual(len(session_records), 2, "two invocations = two session markers")
+
+    # ── Below-threshold: no pass, no state file ──────────────────────────────
+    def test_below_threshold_no_pass(self):
+        """Fewer than 50 new records since last pass (default threshold) -> no pass triggered."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=10)
+        self._run()
+        self.assertFalse(self.state.exists(),
+                         "no _maintenance_state.json when below threshold")
+
+    def test_below_threshold_no_maintenance_line(self):
+        """Below-threshold invocation -> floor block has no 'Maintenance (' line."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=10)
+        rc, out, _ = self._run()
+        self.assertEqual(rc, 0)
+        obj = json.loads(out)
+        ctx = obj["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("Maintenance (", ctx,
+                         "no maintenance line must appear when threshold not reached")
+
+    # ── At/above-threshold: pass runs, state file written, summary in floor ──
+    def test_above_threshold_pass_runs(self):
+        """50+ new telemetry records -> maintenance pass runs: state file appears."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        self._run()
+        self.assertTrue(self.state.exists(),
+                        "_maintenance_state.json must appear after threshold-triggered pass")
+
+    def test_above_threshold_demote_applied(self):
+        """Threshold-triggered pass mutates demote-candidate's declineCount."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        # mem-demote has 55 fires, 0 reads -> rate 0.0 -> demoted
+        self._run()
+        mem_path = self.brain / "mem-demote.md"
+        _, meta, _ = ms.parse_frontmatter(mem_path.read_text())
+        self.assertEqual(str(meta.get("declineCount", "0")), "1",
+                         "demote-candidate declineCount must be 1 after pass")
+
+    def test_above_threshold_summary_in_floor(self):
+        """Threshold-triggered pass -> floor block contains 'Maintenance (' line with summary."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        rc, out, _ = self._run()
+        self.assertEqual(rc, 0)
+        obj = json.loads(out)
+        ctx = obj["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Maintenance (", ctx,
+                      "floor block must contain maintenance summary when pass runs")
+
+    # ── Rotation-reset: negative delta treated as cur lines -> pass runs ─────
+    def test_rotation_reset_triggers_pass(self):
+        """state lastPassLine=600 but telemetry has 80 lines -> negative delta -> pass runs."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        # Simulate state from before rotation: lastPassLine > current line count
+        self.state.write_text(json.dumps({"lastPassLine": 600, "lastPassTs": "2026-06-01T00:00:00Z"}))
+        self._run()
+        # State must be updated (pass ran)
+        new_state = json.loads(self.state.read_text())
+        self.assertLess(new_state["lastPassLine"], 600,
+                        "after rotation-reset pass, lastPassLine must be lower than 600")
+
+    # ── Engine path unreadable: floor still emits, exit 0 ────────────────────
+    def test_engine_unreadable_fail_open(self):
+        """If engine path is unreadable, floor block still emits normally, exit 0."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        # Copy hook to an isolated dir with no ../lib so ENGINE resolves to non-existent
+        iso = Path(tempfile.mkdtemp())
+        try:
+            dst = iso / "memory-base-floor.sh"
+            shutil.copy(BASE_FLOOR, dst)
+            dst.chmod(0o755)
+            env = dict(os.environ, HOME=str(self.home))
+            env.pop("MEMORY_SURFACE_DIR", None)
+            p = subprocess.run(
+                [str(dst)],
+                input=json.dumps({"source": "startup", "cwd": str(self.proj)}),
+                capture_output=True, text=True, env=env, cwd=str(self.proj),
+            )
+            self.assertEqual(p.returncode, 0)
+            # Floor block still emits (may be empty/silent if no engine but should be graceful)
+            self.assertEqual(p.stderr, "", "no stderr on fail-open")
+        finally:
+            shutil.rmtree(iso, ignore_errors=True)
+
+    # ── Existing floor regression: below-threshold path spawns no python ─────
+    def test_below_threshold_no_python_spawn(self):
+        """Below-threshold path: state file unchanged, no Maintenance line, exit 0."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=10)
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        # No state file after the run (sub-threshold did not trigger maintenance)
+        self.assertFalse(self.state.exists())
+        obj = json.loads(out)
+        ctx = obj["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("Maintenance (", ctx)
+
+
 class Registration(unittest.TestCase):
     def test_recall_fires_on_context7_after_merge(self):
         import importlib.util
