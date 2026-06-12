@@ -327,6 +327,27 @@ assert_contains "GUARD deny names the NEW error (WR-01)" "phantom" "$stderr_out"
 printf '%s\n' "$GOOD_TAGS_SNAPSHOT" > "$FIX/_tags.md"
 printf '%s\n' "$GOOD_LINKS_SNAPSHOT" > "$FIX/_tag_links.md"
 
+echo "── GUARD: symlink backing file of store taxonomy is gated (WR-02 iter 2) ──"
+# The live store's taxonomy files are symlinks into the lab; a Write addressed via
+# the BACKING file path must gate exactly like a store-addressed write. Recreate
+# that topology: move the fixture _tags.md to a 'lab' dir and symlink it back.
+LABDIR=$(mktemp -d)
+mv "$FIX/_tags.md" "$LABDIR/_tags.md"
+ln -s "$LABDIR/_tags.md" "$FIX/_tags.md"
+# Corrupting Write via the backing path -> denied (gate validates content)
+stderr_out=$(mkwrite "$LABDIR/_tags.md" "$BROKEN_PROPOSED_TAGS" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD corrupting Write via symlink target denied -> rc=2 (WR-02)" 2 "$got_rc"
+assert_contains "GUARD symlink-target deny names the error (WR-02)" "denylisted" "$stderr_out"
+# VALID Write via the backing path -> allowed (legit lab work is not bricked)
+out=$(mkwrite "$LABDIR/_tags.md" "$GOOD_TAGS_SNAPSHOT" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD valid Write via symlink target allowed -> rc=0 (WR-02)" 0 "$got_rc"
+# An UNRELATED same-named file elsewhere is still not gated (CR-02 scope preserved)
+UNRELATED=$(mktemp -d)
+out=$(mkwrite "$UNRELATED/_tags.md" "# unrelated tags file" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD unrelated _tags.md still not gated -> rc=0 (WR-02/CR-02)" 0 "$got_rc"
+rm -f "$FIX/_tags.md"; mv "$LABDIR/_tags.md" "$FIX/_tags.md"
+rm -rf "$LABDIR" "$UNRELATED"
+
 echo "── GUARD: taxonomy gate is path-scoped (CR-02) ──"
 # A file that merely SHARES a taxonomy basename outside the store is NOT gated —
 # even when the box-store taxonomy is currently invalid (the exact state where the

@@ -62,12 +62,20 @@ case "$base" in *.md) ;; *) exit 0 ;; esac             # only .md files
 # box store against it both false-denies unrelated files and checks the wrong store.
 # (The store's taxonomy files are symlinks into the lab; the lexical realpath -sm
 # canonicalization above keeps the $STORE/* match working for store-addressed writes.)
+# WR-02 (iter 2): the live store's taxonomy files are symlinks into the lab, so the
+# lab-side BACKING file is the same inode the store reads — a write addressed via
+# that path must gate too (it validates content, same as a store-addressed write;
+# valid lab work passes, only corrupting content is denied). readlink -f on the
+# existing store file resolves to the unique backing inode; a non-existent $abs
+# still compares lexically.
 case "$base" in
   _tags.md|_tag_links.md|_grammar.md)
+    real_store_f=$(readlink -f -- "$STORE/$base" 2>/dev/null || true)
+    real_abs=$(readlink -f -- "$abs" 2>/dev/null || printf '%s' "$abs")
     case "$abs" in
-      "$STORE"/*) ;;                                   # in-store taxonomy -> gate below
-      *) exit 0 ;;                                     # out-of-store same-named file -> not ours
-    esac ;;
+      "$STORE"/*) ;;                                   # store-addressed -> gate below
+      *) [ -n "$real_store_f" ] && [ "$real_abs" = "$real_store_f" ] || exit 0 ;;
+    esac ;;                                            # symlink backing file -> gate below
 esac
 case "$base" in
   _tags.md|_tag_links.md) TYPE=taxonomy ;;
