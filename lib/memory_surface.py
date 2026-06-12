@@ -662,39 +662,42 @@ def _closest(tag, active, n=3):
 
 
 def check_write(memdir, content, target=None):
-    tags = parse_tags_md(memdir / "_tags.md")
-    active = set(tags["active"])
     # Only apply structured checks when content has YAML frontmatter (---...---).
     # Content without frontmatter is not a memory file — fail open (existing behavior).
     has_frontmatter = bool(FRONTMATTER_RE.match(content))
     top, meta, _ = parse_frontmatter(content)
-    if "tags" in top:                                  # tags MUST nest under metadata: else they
-        return 2, ("memory tags must be nested under 'metadata:' — found a top-level 'tags' key; "
-                   "move it under the metadata: block so the tags are validated.")
-    # triggers must also nest under metadata: (parity with top-level tags: rejection)
-    if "triggers" in top:
-        return 2, ("memory triggers must be nested under 'metadata:' — found a top-level "
-                   "'triggers' key; move it under the metadata: block.\n"
-                   + TRIGGER_SCHEMA_HINT)
     mtags = meta.get("tags", []) or []
-    for t in mtags:
-        if not TAG_RE.match(t):
-            why = "malformed (must match ^[a-z0-9][a-z0-9-]{1,39}$)"
-        elif t in tags["deny"] and t not in tags["overrides"]:
-            why = "denylisted (too generic); use a specific tag or add a Policy override"
-        elif t not in active:
-            why = "not in _tags.md"
-        else:
-            continue
-        close = _closest(t, active)
-        hint = f"; closest active: {', '.join(close)}" if close else ""
-        return 2, f"memory tag '{t}' is {why}{hint}. Add it to _tags.md first if it is genuinely new."
-    # Structured checks only when content has frontmatter
-    if not has_frontmatter:
-        return 0, ""
+    # Classify FIRST (CR-01): the box taxonomy has no authority over foreign stores
+    # (D-15), so legacy tag validation must not run for non-box targets.
     store_class = _classify_target(target, memdir)
     if store_class == "box":
         # --- Box-store branch ---
+        tags = parse_tags_md(memdir / "_tags.md")
+        active = set(tags["active"])
+        if "tags" in top:                              # tags MUST nest under metadata: else they
+            return 2, ("memory tags must be nested under 'metadata:' — found a top-level 'tags' "
+                       "key; move it under the metadata: block so the tags are validated.")
+        # triggers must also nest under metadata: (parity with top-level tags: rejection)
+        if "triggers" in top:
+            return 2, ("memory triggers must be nested under 'metadata:' — found a top-level "
+                       "'triggers' key; move it under the metadata: block.\n"
+                       + TRIGGER_SCHEMA_HINT)
+        for t in mtags:
+            if not TAG_RE.match(t):
+                why = "malformed (must match ^[a-z0-9][a-z0-9-]{1,39}$)"
+            elif t in tags["deny"] and t not in tags["overrides"]:
+                why = "denylisted (too generic); use a specific tag or add a Policy override"
+            elif t not in active:
+                why = "not in _tags.md"
+            else:
+                continue
+            close = _closest(t, active)
+            hint = f"; closest active: {', '.join(close)}" if close else ""
+            return 2, (f"memory tag '{t}' is {why}{hint}. "
+                       f"Add it to _tags.md first if it is genuinely new.")
+        # Structured checks only when content has frontmatter
+        if not has_frontmatter:
+            return 0, ""
         # D-09: triggers required for full Writes to the box store
         triggers = meta.get("triggers")
         if triggers is None:
@@ -722,8 +725,11 @@ def check_write(memdir, content, target=None):
     elif store_class in ("project-store", "repo-memory"):
         # --- Non-box branch (D-15 placement gate) ---
         # Skip legacy tag validation and triggers requirement — no grammar authority
-        # over foreign stores. ONLY run the placement gate: deny only when ALL
-        # grammar-known tags carry placement='box'.
+        # over foreign stores (CR-01: tag validation now runs ONLY in the box branch
+        # above). ONLY run the placement gate: deny only when ALL grammar-known tags
+        # carry placement='box'.
+        if not has_frontmatter:
+            return 0, ""
         grammar = parse_grammar_md(Path(memdir) / "_grammar.md")
         if grammar:
             # Collect tags that are known to the grammar

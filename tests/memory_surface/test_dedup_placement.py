@@ -590,16 +590,42 @@ class PlacementGate(TempStore):
     def test_unknown_tags_wrong_store_allowed(self):
         """D-15: a memory whose tags are NOT in the grammar targeted at a non-box path → rc 0.
 
-        Ambiguous subject (no grammar entry for tag) — fail open.
-        Note: tags must be in _tags.md to pass tag validation; we use an existing tag
-        (audio) but construct a scenario where the grammar is NOT consulted because
-        this test is really about the placement gate's fail-open behavior for
-        non-box targets where the grammar has NO placement='box' entry for ALL tags.
+        Ambiguous subject (no grammar entry for tag) — fail open. The tag is genuinely
+        unknown to the box store (absent from BOTH _tags.md and _grammar.md): the box
+        taxonomy has no authority over foreign stores, so neither tag validation nor
+        the placement gate may deny (CR-01 regression).
         """
-        # Use a content where a box-placement tag is present but test with a non-box
-        # target — this is tricky: we need tags that are in _tags.md (so tag validation
-        # passes) but where at least one tag does NOT have placement=box in the grammar.
-        # git tag has placement=either in the grammar, so mixed/non-box placement.
+        content_unknown = """\
+---
+name: project-ui-lesson
+description: UI lesson specific to a foreign project
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [jangsjedi-ui]
+  triggers:
+    commands: [cargo]
+    args: [build]
+    paths: []
+    synonyms: []
+---
+
+Project-own lesson.
+"""
+        with tempfile.TemporaryDirectory() as fake_repo:
+            wrong_path = str(Path(fake_repo) / "memory" / "foo.md")
+            rc, msg = ms.check_write(self.store, content_unknown, target=wrong_path)
+            # Tag unknown to the grammar — ambiguous subject — gate fails open
+            self.assertEqual(rc, 0,
+                             f"Memory with grammar-unknown tag at non-box path must be "
+                             f"allowed (D-15 fail-open for ambiguous subject); msg: {msg!r}")
+
+    def test_either_placement_tag_wrong_store_allowed(self):
+        """D-15: a grammar-known tag with placement=either at a non-box path → rc 0.
+
+        git has placement=either in the fixture grammar — not exclusively box —
+        so the placement gate must fail open.
+        """
         content_git = """\
 ---
 name: git-notes
@@ -624,6 +650,34 @@ Git workflow notes.
             self.assertEqual(rc, 0,
                              f"Memory with non-box-placement tag at non-box path must be "
                              f"allowed (D-15 fail-open for ambiguous subject); msg: {msg!r}")
+
+    def test_foreign_store_tag_not_in_box_tags_md_allowed(self):
+        """CR-01/D-15: foreign-store target + tag absent from the box _tags.md → rc 0.
+
+        The box taxonomy (tag list AND denylist) must NOT be applied to writes
+        addressed at another project's store. Before the CR-01 fix this returned
+        rc 2 ("memory tag ... is not in _tags.md"), silently breaking memory
+        writes in every non-box project on the machine.
+        """
+        content_foreign = """\
+---
+name: jangsjedi-ui-lesson
+description: A lesson about the JangsJedi UI worker layout
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [jangsjedi-ui]
+---
+
+Foreign-project lesson body.
+"""
+        target = ("/home/user/.claude/projects/-home-user-jangsjedi/memory/"
+                  "jangsjedi-ui-lesson.md")
+        rc, msg = ms.check_write(self.store, content_foreign, target=target)
+        self.assertEqual(rc, 0,
+                         f"Foreign project-store write with a tag unknown to the box "
+                         f"_tags.md must be allowed (no grammar authority over foreign "
+                         f"stores, D-15); msg: {msg!r}")
 
     def test_mixed_placement_wrong_store_allowed(self):
         """D-15: mixed placement (audio=box, git=either) at non-box target → rc 0 (fail open).
