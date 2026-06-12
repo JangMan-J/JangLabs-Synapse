@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** The right memory surfaces at the right moment with zero human curation — and the whole system stays legible and maximum-punch-per-pound while doing it.
-**Current focus:** Phase 04 — reorganization-realignment
+**Current focus:** v1.0 shipped — planning next milestone (/gsd-new-milestone)
 
 ## Current Position
 
