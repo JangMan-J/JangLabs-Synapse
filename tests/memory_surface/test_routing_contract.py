@@ -858,66 +858,67 @@ class TestM03PerMemoryTriggerFiresWithMemoryIdTag(BaseMatcherTest):
 # ---------------------------------------------------------------------------
 
 class TestM04SynonymOnlySingleMatchSilent(BaseMatcherTest):
-    """CORE-06/D-27: an event whose only token hits bySynonym (single weak-tier match) returns
+    """CORE-06/D-27: an event whose only hit is a single weak bySynonym tuple returns
     empty results and empty surfaceText — silence is the default.
 
     Surface gate: a memory surfaces only with ≥1 strong-tier tuple OR ≥2 tuples total.
     A single synonym-only (weak) match violates both conditions → SILENT.
+
+    Token-kind routing matters here (WR-04): a bare Bash word tokenizes as a
+    command-kind token, which consults ONLY byCommand — it would produce ZERO hits
+    and never reach the gate (a vacuous pass). Package-kind tokens DO consult
+    bySynonym, so the silence event is an installer invocation:
+    'pacman -S xyzzy-unique-synonym' → package token → bySynonym → one weak tuple
+    → gated SILENT. The positive control proves the same memory DOES surface for a
+    strong per-memory command trigger, so this class fails (instead of passing
+    vacuously) if matching breaks.
     """
 
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = Path(self._td.name)
+        self._old_env = os.environ.get("MEMORY_SURFACE_DIR")
+        os.environ["MEMORY_SURFACE_DIR"] = str(self.store)
+        # Grammar only covers nvidia/claude-harness; the memory's synonym + command
+        # triggers are per-memory (memory-source index entries).
+        memories = {
+            "synonym-only-mem.md": _mem(
+                "synonym-only-mem",
+                ["nvidia"],  # grammar coverage for routability
+                triggers={
+                    "commands": ["xyzzy-strong-cmd"],
+                    "paths": [],
+                    "args": [],
+                    "synonyms": ["xyzzy-unique-synonym"],
+                },
+            )
+        }
+        make_store(self.store, memories=memories)
+
     def test_synonym_only_event_returns_empty_results(self):
-        """Bash 'nvidia-open' (synonym only, single token) returns empty results."""
-        # nvidia-open is a synonym for nvidia — it routes to bySynonym, tier=weak
-        # The fixture memories also match via nvidia tag (grammar-covered), so we need
-        # a store that has ONLY synonym-eligible memories (all with synonym-only evidence)
-        # Actually: the fixture has nvidia-smi as strong command for nvidia memories.
-        # To test the silence gate, use an event that ONLY hits bySynonym with no command/path.
-        # WebSearch with a synonym query hits only tag/synonym paths.
-        # But nvidia IS in active vocab → WebSearch would hit as strong.
-        # Instead: craft an event that ONLY triggers via bySynonym with no other path.
-        # The cleanest approach: build a store with a memory that has ONLY synonym triggers.
-        td = tempfile.TemporaryDirectory()
-        store = Path(td.name)
-        old_env = os.environ.get("MEMORY_SURFACE_DIR")
-        os.environ["MEMORY_SURFACE_DIR"] = str(store)
-        try:
-            # Grammar: synonym-only-tag has no commands/paths/args (but has a synonym)
-            # This would fail validate_grammar's evidence requirement — use explicit per-memory triggers
-            # Grammar only includes nvidia and claude-harness (both have strong evidence).
-            # Memory has only a synonym trigger in its triggers: block.
-            memories = {
-                "synonym-only-mem.md": _mem(
-                    "synonym-only-mem",
-                    ["nvidia"],  # has grammar coverage for routability
-                    triggers={
-                        "commands": [],
-                        "paths": [],
-                        "args": [],
-                        "synonyms": ["xyzzy-unique-synonym"],
-                    },
-                )
-            }
-            make_store(store, memories=memories)
-            # Event that ONLY hits xyzzy-unique-synonym (not a grammar tag, not a command)
-            # The token 'xyzzy-unique-synonym' normalizes to 'xyzzy-unique-synonym' via _norm().
-            # Actually _norm() needs TAG_RE match: [a-z0-9][a-z0-9-]{1,39}
-            # xyzzy-unique-synonym passes TAG_RE → emits as command kind (weak) from Bash
-            event = {"tool_name": "Bash",
-                     "tool_input": {"command": "xyzzy-unique-synonym"},
-                     "cwd": "/tmp"}
-            result = ms.search(store, event)
-            # xyzzy-unique-synonym hits bySynonym → tuple tier=weak, count=1
-            # Surface gate: 1 tuple, 0 strong → SILENT
-            self.assertEqual(result["results"], [],
-                             "synonym-only single weak match must return empty results (CORE-06/D-27)")
-            self.assertEqual(result["surfaceText"], "",
-                             "synonym-only single weak match must return empty surfaceText")
-        finally:
-            td.cleanup()
-            if old_env is None:
-                os.environ.pop("MEMORY_SURFACE_DIR", None)
-            else:
-                os.environ["MEMORY_SURFACE_DIR"] = old_env
+        """'pacman -S xyzzy-unique-synonym' (single weak bySynonym tuple) is gated SILENT."""
+        # Tokens: ('pacman', command) — no byCommand entry in this store —
+        # and ('xyzzy-unique-synonym', package) → bySynonym → weak tuple, count=1.
+        # Surface gate: 1 tuple, 0 strong → SILENT (verified: with the gate disabled
+        # this event surfaces synonym-only-mem with exactly one weak synonym tuple).
+        event = {"tool_name": "Bash",
+                 "tool_input": {"command": "pacman -S xyzzy-unique-synonym"},
+                 "cwd": "/tmp"}
+        result = ms.search(self.store, event)
+        self.assertEqual(result["results"], [],
+                         "synonym-only single weak match must return empty results (CORE-06/D-27)")
+        self.assertEqual(result["surfaceText"], "",
+                         "synonym-only single weak match must return empty surfaceText")
+
+    def test_positive_control_strong_command_trigger_surfaces(self):
+        """Control: the same memory surfaces for its strong per-memory command trigger."""
+        event = {"tool_name": "Bash",
+                 "tool_input": {"command": "xyzzy-strong-cmd"},
+                 "cwd": "/tmp"}
+        result = ms.search(self.store, event)
+        self.assertIn("synonym-only-mem", [r["id"] for r in result["results"]],
+                      "strong command-trigger match must surface the memory — if this "
+                      "fails, the silence test above is passing vacuously")
 
 
 # ---------------------------------------------------------------------------
