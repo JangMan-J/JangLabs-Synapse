@@ -88,8 +88,11 @@ if [ "$tool" = "Read" ]; then
         _tel="$STORE/_recall_telemetry.jsonl"
         if [ ! -L "$_tel" ]; then                       # T-03-01: symlink hardening
           TZ=UTC0 printf -v _rs_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+          # WR-06: EACCES/ENOSPC must stay silent (quiet fail-open). 2>/dev/null
+          # FIRST — a failing >> open prints its diagnostic before a trailing
+          # 2>/dev/null would take effect (redirections apply left to right).
           printf '{"ts":"%s","id":"%s","signal":"read"}\n' "$_rs_ts" "$stem" \
-            >> "$_tel" || true
+            2>/dev/null >> "$_tel" || true
         fi
       fi ;;
   esac

@@ -48,7 +48,9 @@ ROUTER="$BRAIN/MEMORY.md"
 _bf_tel="$BRAIN/_recall_telemetry.jsonl"
 if [ ! -L "$_bf_tel" ]; then
   TZ=UTC0 printf -v _bf_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
-  printf '{"ts":"%s","signal":"session"}\n' "$_bf_ts" >> "$_bf_tel" 2>/dev/null || true
+  # WR-06: 2>/dev/null FIRST — bash applies redirections left to right, so a
+  # failing >> open prints its diagnostic before a trailing 2>/dev/null applies.
+  printf '{"ts":"%s","signal":"session"}\n' "$_bf_ts" 2>/dev/null >> "$_bf_tel" || true
 fi
 
 # Block 2 — maintenance trigger (D-40): threshold-gated with 2s hard cap.

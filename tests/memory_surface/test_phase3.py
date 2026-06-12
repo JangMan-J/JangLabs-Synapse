@@ -172,6 +172,20 @@ class TelemetryAppend(unittest.TestCase):
         rec = json.loads(self.tel.read_text().strip())
         self.assertIn("qid", rec)
 
+    # ── WR-06: append failure (read-only store) is SILENT — no stderr leak ───
+    def test_readonly_store_append_silent(self):
+        """A failing telemetry append (EACCES on a read-only store) must not leak
+        a bash 'cannot create'/'Permission denied' line to stderr (WR-06): the
+        hook still exits 0 and still emits the advisory."""
+        os.chmod(self.store, 0o555)
+        try:
+            rc, out, err = self._fire()
+        finally:
+            os.chmod(self.store, 0o755)
+        self.assertEqual(rc, 0, "hook must exit 0 on append failure")
+        self.assertEqual(err, "", "append failure must be silent on stderr")
+        self.assertNotEqual(out.strip(), "", "advisory must still emit")
+
     # ── Fail-open: symlink on tel path, store read-only ─────────────────────
     def test_fail_open_on_symlink_tel(self):
         """If telemetry path is a symlink, hook exits 0 and still emits the advisory block."""

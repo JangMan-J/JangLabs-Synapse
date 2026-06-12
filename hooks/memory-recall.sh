@@ -167,9 +167,12 @@ if [ -n "$_qid" ]; then
   fi
   # T-03-01: skip append if telemetry path is a symlink (tampering hardening)
   if [ ! -L "$_tel" ]; then
+    # WR-06: EACCES/ENOSPC must stay silent (quiet fail-open). 2>/dev/null comes
+    # FIRST: bash applies redirections left to right, so a failing >> open would
+    # print its diagnostic before a trailing 2>/dev/null ever took effect.
     printf '%s\n' \
       "{\"ts\":\"${_tel_ts}\",\"qid\":\"${_qid}\",\"mems\":${_mems_json:-[]},\"conf\":\"${_tel_conf:-low}\"}" \
-      >> "$_tel" || true
+      2>/dev/null >> "$_tel" || true
   fi
 fi
 exit 0
