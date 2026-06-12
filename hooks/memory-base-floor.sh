@@ -83,7 +83,12 @@ if [ -f "$_bf_tel" ]; then
       # --recheck-threshold (WR-02): the engine re-verifies this gate under its
       # O_EXCL lock, so two near-simultaneous SessionStarts cannot both run the
       # pass off the same stale lastPassLine read above.
-      _maint_summary=$(timeout 2 python3 "$ENGINE_FLOOR" maintenance --recheck-threshold 2>/dev/null || true)
+      # --memory-dir "$BRAIN" (WR-07): the gate above counted THIS store's
+      # telemetry; without the explicit flag the engine honors an inherited
+      # MEMORY_SURFACE_DIR and could mutate a DIFFERENT store than the one
+      # whose threshold was judged.
+      _maint_summary=$(timeout 2 python3 "$ENGINE_FLOOR" maintenance \
+        --memory-dir "$BRAIN" --recheck-threshold 2>/dev/null || true)
     fi
   fi
 fi

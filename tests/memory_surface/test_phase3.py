@@ -1173,6 +1173,33 @@ class BaseFloorMaintenance(unittest.TestCase):
         self.assertIn("Maintenance (", ctx,
                       "floor block must contain maintenance summary when pass runs")
 
+    # ── WR-07: inherited MEMORY_SURFACE_DIR must not split gate and mutation ──
+    def test_maintenance_targets_brain_despite_env_store(self):
+        """The hook gates on $BRAIN's telemetry and must mutate $BRAIN: a stale
+        exported MEMORY_SURFACE_DIR (test runs, shell profiles) must not redirect
+        the mutation pass to a different store (WR-07 — explicit --memory-dir)."""
+        _make_fixture_store_with_telemetry(self.brain, n_fires=55)
+        other = Path(tempfile.mkdtemp())
+        try:
+            env = dict(os.environ, HOME=str(self.home), MEMORY_SURFACE_DIR=str(other))
+            p = subprocess.run(
+                [str(BASE_FLOOR)],
+                input=json.dumps({"source": "startup", "cwd": str(self.proj)}),
+                capture_output=True, text=True, env=env, cwd=str(self.proj),
+            )
+            self.assertEqual(p.returncode, 0)
+            # Mutation landed in $BRAIN (the store the gate counted) ...
+            _, meta, _ = ms.parse_frontmatter((self.brain / "mem-demote.md").read_text())
+            self.assertEqual(str(meta.get("declineCount", "0")), "1",
+                             "pass must mutate the $BRAIN store the gate judged")
+            self.assertTrue(self.state.exists(),
+                            "state must be written to $BRAIN")
+            # ... and NOT in the env-pointed store
+            self.assertFalse((other / "_maintenance_state.json").exists(),
+                             "no state may be written to the env-pointed store")
+        finally:
+            shutil.rmtree(other, ignore_errors=True)
+
     # ── Rotation-reset: negative delta treated as cur lines -> pass runs ─────
     def test_rotation_reset_triggers_pass(self):
         """state lastPassLine=600 but telemetry has 80 lines -> negative delta -> pass runs."""
