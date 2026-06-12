@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Spec-first contract tests for the triggerIndex compiler (Plan 02-01, CORE-03/CORE-09)
-and the trigger-index matcher / search_new() (Plan 02-02, CORE-04/CORE-05/CORE-06/CORE-09).
+and the trigger-index matcher / search() (D-30 flip, 2026-06-12) (Plan 02-02, CORE-04/CORE-05/CORE-06/CORE-09).
 
 Tests are derived from the grammar spec document (memory/_grammar.md — "Schema rules"
 and "One grammar, two levels" sections) and decisions D-21, D-23, D-25, D-26, D-27, D-29.
@@ -644,7 +644,7 @@ class Test13BackwardsCompatibility(Base):
 
 # ===========================================================================
 # MATCHER CONTRACT TESTS (Plan 02-02, D-25/D-26/D-27/CORE-04/CORE-05/CORE-06)
-# All classes below test search_new() — written BEFORE the implementation (D-19).
+# All classes below test search() (was search()) — written BEFORE the implementation (D-19); renamed at D-30 flip.
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
@@ -697,14 +697,14 @@ class TestM01CommandRoutesNvidia(BaseMatcherTest):
     def test_nvidia_smi_fires_nvidia_memory(self):
         """nvidia-smi Bash event surfaces ≥1 result from the fixture nvidia memories."""
         event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0,
                            "nvidia-smi must surface at least one nvidia memory")
 
     def test_nvidia_smi_evidence_tuple_present(self):
         """evidenceTuples must contain {tag:'nvidia', trigger_type:'command', matched_value:'nvidia-smi'}."""
         event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0)
         found_tuple = None
         for r in result["results"]:
@@ -736,7 +736,7 @@ class TestM02PathRoutesClaudeHarness(BaseMatcherTest):
         """Read of ~/.claude/hooks/memory-recall.sh surfaces claude-harness memory."""
         hook_path = str(Path.home() / ".claude" / "hooks" / "memory-recall.sh")
         event = {"tool_name": "Read", "tool_input": {"file_path": hook_path}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0,
                            "Read of ~/.claude/** path must surface claude-harness memory")
 
@@ -744,7 +744,7 @@ class TestM02PathRoutesClaudeHarness(BaseMatcherTest):
         """evidenceTuples for a path-routed memory must have trigger_type='path'."""
         hook_path = str(Path.home() / ".claude" / "hooks" / "memory-recall.sh")
         event = {"tool_name": "Read", "tool_input": {"file_path": hook_path}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0)
         path_tuples = []
         for r in result["results"]:
@@ -758,7 +758,7 @@ class TestM02PathRoutesClaudeHarness(BaseMatcherTest):
         """evidenceTuples matched_value for a path hit = canonicalized absolute path (D-26)."""
         hook_path = str(Path.home() / ".claude" / "hooks" / "memory-recall.sh")
         event = {"tool_name": "Read", "tool_input": {"file_path": hook_path}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0)
         found = False
         for r in result["results"]:
@@ -791,7 +791,7 @@ class TestM03PerMemoryTriggerFiresWithMemoryIdTag(BaseMatcherTest):
     def test_per_memory_trigger_fires(self):
         """Bash 'specific-tool' surfaces the memory with per-memory trigger."""
         event = {"tool_name": "Bash", "tool_input": {"command": "specific-tool"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         ids = [r["id"] for r in result["results"]]
         self.assertIn("per-memory-specific", ids,
                       "per-memory trigger command 'specific-tool' must fire its memory (D-25)")
@@ -799,7 +799,7 @@ class TestM03PerMemoryTriggerFiresWithMemoryIdTag(BaseMatcherTest):
     def test_per_memory_tuple_tag_is_memory_id(self):
         """evidenceTuples tag field for a memory-source hit = the memory id (D-25 one matcher)."""
         event = {"tool_name": "Bash", "tool_input": {"command": "specific-tool"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         found_tuple = None
         for r in result["results"]:
             if r["id"] == "per-memory-specific":
@@ -866,7 +866,7 @@ class TestM04SynonymOnlySingleMatchSilent(BaseMatcherTest):
             event = {"tool_name": "Bash",
                      "tool_input": {"command": "xyzzy-unique-synonym"},
                      "cwd": "/tmp"}
-            result = ms.search_new(store, event)
+            result = ms.search(store, event)
             # xyzzy-unique-synonym hits bySynonym → tuple tier=weak, count=1
             # Surface gate: 1 tuple, 0 strong → SILENT
             self.assertEqual(result["results"], [],
@@ -897,7 +897,7 @@ class TestM05NoEvidenceReturnsEmpty(BaseMatcherTest):
         event = {"tool_name": "Bash",
                  "tool_input": {"command": "frobnicate-xyzzy"},
                  "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertEqual(result["results"], [],
                          "no-evidence event must return empty results (CORE-06)")
         self.assertEqual(result["surfaceText"], "",
@@ -910,14 +910,14 @@ class TestM05NoEvidenceReturnsEmpty(BaseMatcherTest):
 # ---------------------------------------------------------------------------
 
 class TestM06MissingCatalogEmptyNoRebuild(BaseMatcherTest):
-    """D-27/fail-closed: missing catalog file returns empty response; search_new() never
+    """D-27/fail-closed: missing catalog file returns empty response; search() never
     rebuilds the catalog — that is the PostToolUse hook's job (§19).
 
     Contract test 6 from plan: search never rebuilds — anti-pattern guard.
     """
 
     def test_missing_catalog_returns_empty(self):
-        """search_new() on a store with no _memory_catalog.json returns empty response."""
+        """search() on a store with no _memory_catalog.json returns empty response."""
         td = tempfile.TemporaryDirectory()
         store = Path(td.name)
         old_env = os.environ.get("MEMORY_SURFACE_DIR")
@@ -935,7 +935,7 @@ class TestM06MissingCatalogEmptyNoRebuild(BaseMatcherTest):
             event = {"tool_name": "Bash",
                      "tool_input": {"command": "nvidia-smi"},
                      "cwd": "/tmp"}
-            result = ms.search_new(store, event)
+            result = ms.search(store, event)
             self.assertEqual(result["results"], [],
                              "missing catalog must return empty results (fail-closed)")
             self.assertEqual(result["surfaceText"], "",
@@ -948,7 +948,7 @@ class TestM06MissingCatalogEmptyNoRebuild(BaseMatcherTest):
                 os.environ["MEMORY_SURFACE_DIR"] = old_env
 
     def test_missing_catalog_does_not_create_catalog(self):
-        """search_new() must NOT create _memory_catalog.json when it is missing."""
+        """search() must NOT create _memory_catalog.json when it is missing."""
         td = tempfile.TemporaryDirectory()
         store = Path(td.name)
         old_env = os.environ.get("MEMORY_SURFACE_DIR")
@@ -962,9 +962,9 @@ class TestM06MissingCatalogEmptyNoRebuild(BaseMatcherTest):
             event = {"tool_name": "Bash",
                      "tool_input": {"command": "nvidia-smi"},
                      "cwd": "/tmp"}
-            ms.search_new(store, event)
+            ms.search(store, event)
             self.assertFalse((store / "_memory_catalog.json").exists(),
-                             "search_new must never create _memory_catalog.json (anti-pattern guard §19)")
+                             "search() must never create _memory_catalog.json (anti-pattern guard §19)")
         finally:
             td.cleanup()
             if old_env is None:
@@ -978,16 +978,16 @@ class TestM06MissingCatalogEmptyNoRebuild(BaseMatcherTest):
 # ---------------------------------------------------------------------------
 
 class TestM07SurfaceDisabledReturnsEmpty(BaseMatcherTest):
-    """D-27/fail-closed: .surface-disabled file in the store → search_new returns empty."""
+    """D-27/fail-closed: .surface-disabled file in the store → search() returns empty."""
 
     def test_surface_disabled_returns_empty(self):
-        """search_new() returns empty response when .surface-disabled exists."""
+        """search() returns empty response when .surface-disabled exists."""
         (self.store / ".surface-disabled").touch()
         try:
             event = {"tool_name": "Bash",
                      "tool_input": {"command": "nvidia-smi"},
                      "cwd": "/tmp"}
-            result = ms.search_new(self.store, event)
+            result = ms.search(self.store, event)
             self.assertEqual(result["results"], [],
                              ".surface-disabled must suppress results")
             self.assertEqual(result["surfaceText"], "",
@@ -998,12 +998,12 @@ class TestM07SurfaceDisabledReturnsEmpty(BaseMatcherTest):
 
 # ---------------------------------------------------------------------------
 # Matcher Test M08: Structural independence — delete _tags.md and _tag_links.md after
-# rebuild; search_new results are identical (catalog-only reads)
+# rebuild; search() results are identical (catalog-only reads)
 # ---------------------------------------------------------------------------
 
 class TestM08CatalogOnlyReadsNoTagsMd(BaseMatcherTest):
-    """CORE-04/D-27: search_new reads ONLY the catalog — deleting _tags.md and _tag_links.md
-    after rebuild does not change search_new results.
+    """CORE-04/D-27: search() reads ONLY the catalog — deleting _tags.md and _tag_links.md
+    after rebuild does not change search() results.
 
     This is the flip's core claim: the legacy file reads on the search path are eliminated.
     """
@@ -1014,16 +1014,16 @@ class TestM08CatalogOnlyReadsNoTagsMd(BaseMatcherTest):
                  "tool_input": {"command": "nvidia-smi"},
                  "cwd": "/tmp"}
         # Get baseline results (with taxonomy files present)
-        result_with = ms.search_new(self.store, event)
+        result_with = ms.search(self.store, event)
         # Delete taxonomy files
         (self.store / "_tags.md").unlink(missing_ok=True)
         (self.store / "_tag_links.md").unlink(missing_ok=True)
         # Results must be identical
-        result_without = ms.search_new(self.store, event)
+        result_without = ms.search(self.store, event)
         self.assertEqual(
             [r["id"] for r in result_with["results"]],
             [r["id"] for r in result_without["results"]],
-            "deleting _tags.md and _tag_links.md must not change search_new results (catalog-only)"
+            "deleting _tags.md and _tag_links.md must not change search() results (catalog-only)"
         )
         self.assertEqual(
             result_with["surfaceText"],
@@ -1048,7 +1048,7 @@ class TestM09PathGlobParity(BaseMatcherTest):
         """A path equal to the glob prefix (without /**) matches the /** pattern."""
         prefix_path = str(Path.home() / ".claude")
         event = {"tool_name": "Read", "tool_input": {"file_path": prefix_path}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         # ~/.claude itself should match ~/.claude/** because /** means prefix + /anything OR exact
         ids = [r["id"] for r in result["results"]]
         # At least the claude-harness memory should fire
@@ -1083,7 +1083,7 @@ related: []
             event = {"tool_name": "Read",
                      "tool_input": {"file_path": "/home/user/deep/config"},
                      "cwd": "/tmp"}
-            result = ms.search_new(store2, event)
+            result = ms.search(store2, event)
             # mid-** pattern must NOT fire; test-mid-star-cmd has no matches here
             mid_star_ids = [r["id"] for r in result["results"] if r["id"] == "test-mid-star"]
             # The memory may appear due to grammar coverage but NOT via path routing
@@ -1149,7 +1149,7 @@ related: []
         event = {"tool_name": "Bash",
                  "tool_input": {"command": "tier-cmd tier-test-arg"},
                  "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         ids = [r["id"] for r in result["results"]]
         cmd_score = next((r["score"] for r in result["results"] if r["id"] == "cmd-mem"), None)
         arg_score = next((r["score"] for r in result["results"] if r["id"] == "arg-mem"), None)
@@ -1177,7 +1177,7 @@ class TestM11SurfaceTextTupleRendering(BaseMatcherTest):
     def test_surface_text_contains_arrow_marker(self):
         """surfaceText why: line must contain the ← marker (D-26/D-32)."""
         event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertTrue(result["results"], "must have results to test surfaceText")
         self.assertIn("←", result["surfaceText"],
                       "surfaceText must contain ← tuple marker (D-26)")
@@ -1185,7 +1185,7 @@ class TestM11SurfaceTextTupleRendering(BaseMatcherTest):
     def test_surface_text_why_line_has_all_tuple_fields(self):
         """surfaceText why: line contains tag, trigger_type, and matched_value fields."""
         event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertTrue(result["results"])
         text = result["surfaceText"]
         # The format is: {tag} ← {trigger_type}:{matched_value}
@@ -1212,7 +1212,7 @@ class TestM11SurfaceTextTupleRendering(BaseMatcherTest):
                                                          "synonyms": []})
             make_store(store2, memories=mems)
             event = {"tool_name": "Bash", "tool_input": {"command": "adv-cmd"}, "cwd": "/tmp"}
-            result = ms.search_new(store2, event)
+            result = ms.search(store2, event)
             if result["results"]:
                 # surfaceText must not contain raw < or > from matched_value
                 # adv-cmd normalizes fine, so this tests the rendering path exists
@@ -1238,7 +1238,7 @@ class TestM12MaxResultsCapsOutput(BaseMatcherTest):
     """
 
     def test_max_results_caps_at_configured_value(self):
-        """With maxResults=1, search_new returns at most 1 result even if more match."""
+        """With maxResults=1, search() returns at most 1 result even if more match."""
         # Build a store with maxResults=1 config; nvidia has 2 memories in default fixture
         td = tempfile.TemporaryDirectory()
         store2 = Path(td.name)
@@ -1247,7 +1247,7 @@ class TestM12MaxResultsCapsOutput(BaseMatcherTest):
         try:
             make_store(store2, config={"maxResults": 1})
             event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-            result = ms.search_new(store2, event)
+            result = ms.search(store2, event)
             self.assertLessEqual(len(result["results"]), 1,
                                  "maxResults=1 must cap results to at most 1")
         finally:
@@ -1276,7 +1276,7 @@ class TestM13WebSearchTagRoutingAndSilence(BaseMatcherTest):
         event = {"tool_name": "WebSearch",
                  "tool_input": {"query": "how to configure nvidia on linux"},
                  "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertGreater(len(result["results"]), 0,
                            "WebSearch with grammar tag 'nvidia' in query must surface memories")
 
@@ -1285,7 +1285,7 @@ class TestM13WebSearchTagRoutingAndSilence(BaseMatcherTest):
         event = {"tool_name": "WebSearch",
                  "tool_input": {"query": "frobnicate the xyzzy widget froobazz"},
                  "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         self.assertEqual(result["results"], [],
                          "WebSearch with no known tags must return empty results (CORE-06)")
 
@@ -1296,7 +1296,7 @@ class TestM13WebSearchTagRoutingAndSilence(BaseMatcherTest):
 # ---------------------------------------------------------------------------
 
 class TestM14ResponseEnvelopeParity(BaseMatcherTest):
-    """D-28: search_new response envelope has the SAME keys as legacy search().
+    """D-28: search() response envelope keys preserved after D-30 flip (2026-06-12).
 
     The hook's jq extraction depends on .results and .surfaceText.
     Keys required: schemaVersion, queryId, mode, confidence, tokens,
@@ -1305,7 +1305,7 @@ class TestM14ResponseEnvelopeParity(BaseMatcherTest):
 
     def _get_result(self):
         event = {"tool_name": "Bash", "tool_input": {"command": "nvidia-smi"}, "cwd": "/tmp"}
-        return ms.search_new(self.store, event)
+        return ms.search(self.store, event)
 
     def test_schema_version_present(self):
         """response must have schemaVersion key."""
@@ -1344,7 +1344,7 @@ class TestM14ResponseEnvelopeParity(BaseMatcherTest):
         event = {"tool_name": "Bash",
                  "tool_input": {"command": "frobnicate-xyzzy"},
                  "cwd": "/tmp"}
-        result = ms.search_new(self.store, event)
+        result = ms.search(self.store, event)
         for key in ("schemaVersion", "queryId", "mode", "confidence",
                     "tokens", "canonicalTags", "results", "surfaceText"):
             self.assertIn(key, result,

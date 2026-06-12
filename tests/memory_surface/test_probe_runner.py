@@ -13,13 +13,12 @@ Run modes:
 
 Environment overrides for subprocess isolation:
   MEMORY_SURFACE_DIR  → fixture store (default) or live store (--live)
-  MEMORY_SURFACE_SEARCH_IMPL=new  → staged matcher dispatch (D-30)
   XDG_RUNTIME_DIR     → per-run tempdir (never the real session mark dir)
 
 Phase advisory notes applied:
   PROBE-DEDUP-MASKING: marks isolated via per-run tempdir + clear_dedup_marks()
-  LIVE-SYMLINK-BLINDNESS: hook is live; only MEMORY_SURFACE_SEARCH_IMPL and
-    MEMORY_SURFACE_DIR are injected — hook file itself is never modified here
+  LIVE-SYMLINK-BLINDNESS: hook is live via symlink — hook file itself is never
+    modified here; MEMORY_SURFACE_DIR isolates the store under test
 """
 import json
 import os
@@ -70,11 +69,11 @@ def run_hook(payload: dict, store_path: Path, timeout: int = 10) -> subprocess.C
     - Fixed argv list; no shell interpolation (T-02-11)
     - Payload delivered via stdin bytes; subprocess.run with shell=False (default)
     - MEMORY_SURFACE_DIR and XDG_RUNTIME_DIR overridden per run (T-02-12)
-    - MEMORY_SURFACE_SEARCH_IMPL=new routes to staged matcher (D-30)
+    - Post-flip: search() IS the canonical path; no env dispatch needed
     """
     env = os.environ.copy()
     env["MEMORY_SURFACE_DIR"] = str(store_path)
-    env["MEMORY_SURFACE_SEARCH_IMPL"] = "new"
+    env.pop("MEMORY_SURFACE_SEARCH_IMPL", None)   # post-flip: no staging env; remove if inherited
     env["XDG_RUNTIME_DIR"] = _PROBE_XDG          # isolated — never /run/user/UID
     return subprocess.run(
         ["bash", HOOK_PATH],

@@ -1,3 +1,7 @@
+<!-- LEGACY: This file is no longer a routing input after the Phase 2 flip (2026-06-12).
+     It is retained as historical reference only. The routing index is compiled from
+     memory/_grammar.md and per-memory triggers: frontmatter. Do not edit for routing purposes. -->
+
 # Tag vocabulary — box-brain store (Phase 0 pilot)
 
 Controlled vocabulary for `metadata.tags` on memories in this store. Tags are

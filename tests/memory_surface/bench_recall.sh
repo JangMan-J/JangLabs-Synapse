@@ -100,11 +100,10 @@ _clear_marks() {
 
 _run_once() {
   # Run hook once, silencing all output (we time the wall clock, not the output).
-  # MEMORY_SURFACE_SEARCH_IMPL=new → staged matcher dispatch (D-30).
-  # BENCH_IMPL=legacy measures the pre-flip path for non-regression comparison.
+  # Post-flip (2026-06-12): search() IS the canonical path; no env dispatch needed.
+  # MEMORY_SURFACE_SEARCH_IMPL env removed (D-30 staging scaffolding deleted).
   printf '%s' "$PAYLOAD" \
-    | MEMORY_SURFACE_SEARCH_IMPL="${BENCH_IMPL:-new}" \
-      MEMORY_SURFACE_DIR="$STORE" \
+    | MEMORY_SURFACE_DIR="$STORE" \
       XDG_RUNTIME_DIR="$BENCH_XDG" \
       bash "$HOOK" >/dev/null 2>&1 || true
 }

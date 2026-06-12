@@ -698,7 +698,12 @@ def compile_trigger_index(grammar, memories_meta):
 def rebuild(memdir):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
-    smap = synonym_map(parse_tag_links(memdir / "_tag_links.md")["synonyms"])
+    # Synonym map now derived from grammar (same vocabulary as recallVocab.aliases — principle 6).
+    # _tag_links.md synonyms are legacy; parse_tag_links() is still used by write-path (validate,
+    # link, unlink, add_tag) and retires with those files in a later phase.
+    grammar_pre = parse_grammar_md(memdir / "_grammar.md")
+    smap = {syn: tag for tag, spec in grammar_pre.items()
+            for syn in (spec.get("synonyms", []) or []) if syn}
     memories, invalid, tag_index = [], [], {}
     # Collect per-memory metadata tuples for the trigger-index compiler
     memories_meta = []   # (stem, meta, name, description, body_text)
@@ -729,7 +734,8 @@ def rebuild(memdir):
             tag_index.setdefault(t, []).append(p.stem)
 
     # Compile trigger index from grammar + per-memory triggers + mechanical fallback (D-21/D-25/D-29)
-    grammar = parse_grammar_md(memdir / "_grammar.md")   # {} if missing (fail-open)
+    # Reuse grammar_pre parsed above for smap (single parse, single vocabulary — principle 6).
+    grammar = grammar_pre
     trigger_index, recall_vocab, routable_ids = compile_trigger_index(grammar, memories_meta)
 
     # Routability report (D-23)
@@ -1097,13 +1103,12 @@ def path_tag_hits(abspath, path_tags):
 def extract_tokens(event, active, aliases, path_tags, memdir):
     """Per-tool evidence extraction (§11). Returns {tokens, pathRuleTags, paths}: tokens is a
     list of {value, kind, strength}; pathRuleTags is the set of tags emitted by matched path
-    rules; paths is the list of canonicalized absolute paths (new in Plan 02-02 for search_new
-    byPath lookup — legacy callers ignore this key)."""
+    rules; paths is the list of canonicalized absolute paths used for byPath lookup in search()."""
     tool = event.get("tool_name", "") or ""
     ti = event.get("tool_input", {}) or {}
     cwd = event.get("cwd", "") or ""
     seen, tokens, path_rule_tags = set(), [], set()
-    abs_paths = []   # Plan 02-02: collect canonicalized abspaths for search_new byPath lookup
+    abs_paths = []   # collect canonicalized abspaths for byPath lookup in search()
 
     def add(value, kind, strength):
         v = _norm(value)
@@ -1113,7 +1118,7 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
 
     def add_path(raw):
         ap = _abspath(raw, cwd)
-        if ap not in abs_paths:          # collect unique abspaths for search_new (Plan 02-02)
+        if ap not in abs_paths:          # collect unique abspaths
             abs_paths.append(ap)
         for tags, _ in path_tag_hits(ap, path_tags):
             path_rule_tags.update(tags)
@@ -1221,75 +1226,6 @@ def _is_stale(last_reviewed, now):
         return (now - datetime.date.fromisoformat(last_reviewed[:10])).days > 180
     except ValueError:
         return False
-
-
-_CAT_PRIORITY = ["strong_exact", "path_rule", "synonym", "path_component", "command_pkg"]
-
-
-def score_memory(mem, ext, active, aliases, distinctions, now):
-    """(score, cats, matchedTags) for one memory vs evidence (§12). Each DISTINCT canonical
-    tag is counted in exactly ONE category — its highest-priority match — so a tag matched by
-    several tokens/mechanisms never stacks weights across categories."""
-    ct = set(mem.get("canonicalTags", []))
-    raw = set(mem.get("tags", []))
-    slug = {p for p in mem.get("id", "").split("-") if p}
-    rank = {c: i for i, c in enumerate(_CAT_PRIORITY)}
-    best, strong_canon, slug_hits = {}, set(), set()
-
-    def consider(ctag, cat):
-        if ctag in ct and (ctag not in best or rank[cat] < rank[best[ctag]]):
-            best[ctag] = cat
-
-    for tok in ext["tokens"]:
-        v = tok["value"]
-        cv = aliases.get(v, v)
-        if tok["strength"] == "strong" and cv in active:
-            strong_canon.add(cv)
-        if cv in ct:
-            if tok["kind"] in ("tag", "argument"):
-                consider(cv, "strong_exact" if v in raw else "synonym")
-            elif tok["kind"] in ("command", "package", "unit"):
-                consider(cv, "command_pkg")
-            else:
-                consider(cv, "path_component")
-        if v in slug:
-            slug_hits.add(v)
-    for t in ext["pathRuleTags"] & ct:
-        consider(t, "path_rule")
-    strong_canon |= (ext["pathRuleTags"] & active)     # path rules are strong distinction evidence (§7)
-
-    cats = {c: 0 for c in _CAT_PRIORITY}
-    cats["slug"] = len(slug_hits)
-    for cat in best.values():
-        cats[cat] += 1
-
-    conflict = 0
-    for a, b in distinctions:
-        if a in strong_canon and b in ct and a not in ct and b not in strong_canon:
-            conflict += 1
-        if b in strong_canon and a in ct and b not in ct and a not in strong_canon:
-            conflict += 1
-    stale = 1 if _is_stale(mem.get("lastReviewed", ""), now) else 0
-    decline = min(int(mem.get("declineCount", 0) or 0), 3)
-    score = (10 * cats["strong_exact"] + 9 * cats["path_rule"] + 7 * cats["synonym"]
-             + 4 * cats["path_component"] + 3 * cats["command_pkg"] + 2 * cats["slug"]
-             + _type_boost(mem.get("type", "")) - 5 * stale - 2 * decline - 8 * conflict)
-    return score, cats, sorted(best.keys())
-
-
-def _meets_min_candidate(cats):
-    return (cats["strong_exact"] >= 1 or cats["synonym"] >= 1 or cats["path_rule"] >= 1
-            or (cats["path_component"] + cats["command_pkg"]) >= 2)
-
-
-def _confidence(score, cats, cfg):
-    support = (cats["path_rule"] + cats["synonym"] + cats["command_pkg"]
-               + cats["path_component"] + cats["slug"])
-    if score >= cfg.get("confidenceHighThreshold", 10) or (cats["strong_exact"] >= 1 and support >= 1):
-        return "high"
-    if score >= cfg.get("confidenceMediumThreshold", 6):
-        return "medium"
-    return "low"
 
 
 # ---------------------------------------------------------------- surface block (§16)
@@ -1401,63 +1337,8 @@ def _empty_response(mode):
             "tokens": [], "canonicalTags": [], "results": [], "surfaceText": ""}
 
 
-def search(memdir, event, now=None):
-    now = now or datetime.date.today()
-    cfg = load_config(memdir)
-    rmode = _response_mode(cfg)
-    if not cfg.get("enabled", True) or cfg.get("mode") == "disabled" \
-            or (memdir / ".surface-disabled").exists():
-        return _empty_response(rmode)
-    catalog = _load_catalog(memdir)
-    if catalog is None:                                # missing/corrupt catalog -> fail closed
-        return _empty_response(rmode)
-    tags = parse_tags_md(memdir / "_tags.md")
-    active = set(tags["active"])
-    links = parse_tag_links(memdir / "_tag_links.md")
-    aliases = synonym_map(links["synonyms"])
-    distinctions = [(a, b) for (a, b, _) in links["distinctions"]]
-    ext = extract_tokens(event, active, aliases, links["path_tags"], memdir)
-    tokens = ext["tokens"]
-    canon_tags = sorted({aliases.get(t["value"], t["value"]) for t in tokens
-                         if aliases.get(t["value"], t["value"]) in active}
-                        | (ext["pathRuleTags"] & active))   # path-rule tags are canonical too (§10/§15)
-    strong_tokens = sorted({t["value"] for t in tokens if t["strength"] == "strong"})
-    qhash = query_hash(event.get("tool_name", "") or "", canon_tags, strong_tokens)
-    qid = "memq_" + qhash.split(":")[1][:12]
-    scored = []
-    for mem in catalog.get("memories", []):
-        score, cats, matched = score_memory(mem, ext, active, aliases, distinctions, now)
-        if _meets_min_candidate(cats):
-            scored.append((score, cats, matched, mem))
-    scored.sort(key=lambda x: (
-        -x[0], -x[1]["strong_exact"],
-        1 if (x[1]["strong_exact"] == 0 and x[1]["synonym"] > 0) else 0,   # direct over synonym-only
-        TYPE_PRIORITY.get(x[3].get("type", ""), 9),
-        _neg_date(x[3].get("lastReviewed", "")), x[3].get("file", "")))
-    top = scored[:cfg.get("maxResults", 3)]
-    confidence = _confidence(top[0][0], top[0][1], cfg) if top else "low"
-    strict = cfg.get("mode") == "strict-high-confidence"
-    results = []
-    for score, _, matched, mem in top:
-        results.append({
-            "id": mem["id"], "path": mem["path"], "file": mem["file"], "name": mem["name"],
-            "description": mem["description"], "tags": mem["tags"], "matchedTags": matched,
-            "score": score, "mustRead": confidence == "high" and strict,
-        })
-    return {"schemaVersion": 1, "queryId": qid, "mode": rmode, "confidence": confidence,
-            "tokens": tokens, "canonicalTags": canon_tags, "results": results,
-            "surfaceText": surface_text(qid, rmode, confidence, results, cfg) if results else ""}
-
-
-# ================================================================ Plan 02-02: search_new() — staged trigger-index matcher
-# These helpers and search_new() are the NEW read path, dispatched via the
-# 'search-new' CLI subcommand or MEMORY_SURFACE_SEARCH_IMPL=new env override.
-# They are TEMPORARY scaffolding deleted at the Plan 02-04 flip (D-30).
-# After the flip, search_new is renamed to search and this comment block removed.
-
 # Tier weights for evidence scoring (D-27). Module constant; can be overridden via
-# optional 'tierWeights' key in _memory_surface_config.json (merged inside search_new,
-# not in DEFAULT_CONFIG, to keep the existing config schema untouched).
+# optional 'tierWeights' key in _memory_surface_config.json.
 TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
 
 
@@ -1564,17 +1445,12 @@ def _meets_min_candidate_new(tuples, tier_weights):
     return False
 
 
-def search_new(memdir, event, now=None):
-    """Trigger-index matcher — staged implementation (Plan 02-02, D-30).
+def search(memdir, event, now=None):
+    """Trigger-index matcher (Plan 02-02/02-04, D-30 flip completed).
 
     Reads ONLY the precomputed catalog (triggerIndex + recallVocab + tagToMemoryIds).
-    NEVER calls parse_tags_md / parse_tag_links — those are inert after the flip.
+    NEVER calls parse_tags_md / parse_tag_links — those are write-path only after the flip.
     NEVER calls rebuild() — missing/corrupt catalog returns _empty_response() (fail-closed).
-
-    Dispatched via:
-      - CLI subcommand 'search-new'
-      - MEMORY_SURFACE_SEARCH_IMPL=new env override on the 'search' CLI branch
-    Both dispatch mechanisms are TEMPORARY and deleted at the Plan 02-04 flip (D-30).
     """
     # ---- Guard prologue (copy verbatim from legacy search, D-28) ----
     now = now or datetime.date.today()
@@ -2184,21 +2060,7 @@ def main():
     if cmd == "search":
         ef = _arg("--event")
         event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
-        # D-30 staged flip: dispatch to search_new when MEMORY_SURFACE_SEARCH_IMPL=new.
-        # TEMPORARY — both this env-dispatch and the 'search-new' subcommand below are
-        # deleted at the Plan 02-04 flip when search_new is renamed to search.
-        if os.environ.get("MEMORY_SURFACE_SEARCH_IMPL") == "new":
-            print(json.dumps(search_new(memdir, event), ensure_ascii=False))
-        else:
-            print(json.dumps(search(memdir, event), ensure_ascii=False))
-        return 0
-    if cmd == "search-new":
-        # D-30 TEMPORARY subcommand — lets offline probes and Plan 02-03 benchmarks invoke
-        # the new matcher directly without touching the live hook (which always calls 'search').
-        # Deleted at Plan 02-04 flip together with MEMORY_SURFACE_SEARCH_IMPL dispatch above.
-        ef = _arg("--event")
-        event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
-        print(json.dumps(search_new(memdir, event), ensure_ascii=False))
+        print(json.dumps(search(memdir, event), ensure_ascii=False))
         return 0
     if cmd == "write-context":
         # D-08: build the budget-allocated composite for memory-write-context.sh.

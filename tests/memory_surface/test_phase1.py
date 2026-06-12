@@ -270,12 +270,16 @@ class Rebuild(TempStore):
         self.assertIn("m2", cat["tagToMemoryIds"].get("git", []))
 
     def test_synonym_canonicalization(self):
+        # Post-flip (2026-06-12, D-30): rebuild() derives smap from grammar synonyms, not
+        # _tag_links.md synonyms. The phase1 fixture has no _grammar.md, so no synonym map.
+        # canonicalTags for remote-access = ["remote-access"] (identity, no grammar synonym).
+        # The _tag_links.md synonym `remote-desktop = remote-access` is now write-path only.
         self._store_with_memories()
         cat = ms.rebuild(self.store)
         m3 = next(m for m in cat["memories"] if m["id"] == "m3")
         self.assertEqual(m3["tags"], ["remote-access"])           # raw tag preserved
-        self.assertIn("remote-desktop", m3["canonicalTags"])      # canonicalized
-        self.assertIn("m3", cat["tagToMemoryIds"].get("remote-desktop", []))
+        self.assertIn("remote-access", m3["canonicalTags"])       # identity (no grammar synonym)
+        self.assertIn("m3", cat["tagToMemoryIds"].get("remote-access", []))
 
 
 if __name__ == "__main__":
