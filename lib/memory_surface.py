@@ -1320,6 +1320,176 @@ def validate_router(path, memdir=None):
     return rc, msgs
 
 
+# ---------------------------------------------------------------- write-context composite (Plan 01-03, D-08)
+
+def _grammar_digest(entries):
+    """Compact digest: one line per tag, format 'tag: gloss [placement]', sorted by tag name.
+
+    Used as a budget-safe fallback when the full _grammar.md artifact would push the
+    composite over WRITE_CONTEXT_BUDGET (D-08 component b digest path).
+    """
+    lines = []
+    for tag in sorted(entries.keys()):
+        entry = entries[tag]
+        gloss = (entry.get("gloss") or "").strip()
+        placement = entry.get("placement", "either")
+        lines.append(f"{tag}: {gloss} [{placement}]")
+    return "\n".join(lines)
+
+
+def write_context(memdir, event):
+    """Build the budget-allocated write-time composite for the memory-write-context.sh hook (D-08).
+
+    Returns a plain-text string (possibly empty) for inclusion in additionalContext.
+    ALWAYS returns str; NEVER raises (fail open — a context hook must never block).
+
+    Composite order (D-08):
+      (a) Fixed preamble + TRIGGER_SCHEMA_HINT (trigger schema + worked example)
+      (b) Grammar vocabulary (full _grammar.md if budget allows, else _grammar_digest)
+      (c) Top-5 dedup candidates (box-store targets only)
+      (d) Placement guidance naming the box-store path
+
+    Returns "" for non-memory events (no .md file_path, infra file, etc.).
+    """
+    try:
+        return _write_context_impl(memdir, event)
+    except Exception:
+        return ""
+
+
+def _write_context_impl(memdir, event):
+    """Internal implementation — any exception propagates to write_context() which catches all."""
+    ti = (event or {}).get("tool_input") or {}
+    file_path = ti.get("file_path") or ti.get("path") or ""
+    if not file_path:
+        return ""
+    # Only process .md files that are not infra files (_* or MEMORY.md)
+    basename = os.path.basename(file_path)
+    if not basename.endswith(".md"):
+        return ""
+    if basename.startswith("_") or basename == "MEMORY.md":
+        return ""
+
+    # Determine if this is a box-store write (for dedup candidates and placement guidance)
+    store_class = _classify_target(file_path, memdir)
+
+    parts = []
+
+    # --- (a) Fixed preamble + TRIGGER_SCHEMA_HINT ---
+    preamble = (
+        "You are writing a memory file. A metadata.triggers block derived from the work "
+        "just done is REQUIRED at save time (CORE-02). Dedup candidates and placement "
+        "guidance follow. Consolidate into an existing file if any candidate overlaps.\n\n"
+        "REQUIRED trigger schema:\n"
+        + TRIGGER_SCHEMA_HINT
+    )
+    parts.append(preamble)
+
+    # --- (b) Grammar vocabulary ---
+    grammar_path = Path(memdir) / "_grammar.md"
+    if grammar_path.exists():
+        grammar_text = grammar_path.read_text()
+        # Check if full grammar + current parts fits in budget
+        running = sum(len(p) for p in parts)
+        if running + len(grammar_text) + 100 <= WRITE_CONTEXT_BUDGET:
+            parts.append("--- Grammar Vocabulary ---\n" + grammar_text)
+        else:
+            # Digest fallback: one line per tag
+            entries = parse_grammar_md(grammar_path)
+            if entries:
+                digest = _grammar_digest(entries)
+                parts.append("--- Grammar Vocabulary (digest) ---\n" + digest)
+
+    # --- (c) Dedup candidates (box-store targets only) ---
+    if store_class == "box":
+        # Extract proposed tags and description from content for similarity scoring
+        content = ti.get("content") or ""
+        proposed_tags = []
+        proposed_desc = ""
+        if content:
+            try:
+                _top, _meta, _ = parse_frontmatter(content)
+                proposed_tags = _meta.get("tags", []) or []
+                proposed_desc = (_top.get("description", "") or "").strip().strip('"').strip("'")
+            except Exception:
+                pass
+        candidates = dedup_candidates(memdir, proposed_tags, proposed_desc, top_n=5)
+        if candidates:
+            cand_lines = [
+                "--- Dedup Candidates ---",
+                "If this memory overlaps one of these, WRITE INTO that existing file "
+                "(consolidate) instead of creating a new one:",
+            ]
+            for score, mem in candidates:
+                mem_id = mem.get("id", "")
+                mem_desc = mem.get("description", "")
+                mem_path = mem.get("path", "")
+                cand_lines.append(f"- {mem_id} — {mem_desc} ({mem_path})")
+            parts.append("\n".join(cand_lines))
+
+    # --- (d) Placement guidance ---
+    correct_store = str(resolve_memdir())
+    placement_text = (
+        "--- Placement Guidance ---\n"
+        f"Route by SUBJECT: box-general facts (this box, tools, hardware) → box-brain store "
+        f"({correct_store}); lab/project-specific → that project's memory/ directory.\n"
+        f"Box-brain store: {correct_store}"
+    )
+    # Add warning if this is a non-box target with box-placement tags
+    if store_class in ("project-store", "repo-memory"):
+        content = ti.get("content") or ""
+        if content:
+            try:
+                _, _meta, _ = parse_frontmatter(content)
+                _tags = _meta.get("tags", []) or []
+                grammar = parse_grammar_md(Path(memdir) / "_grammar.md")
+                if grammar:
+                    known_box_tags = [t for t in _tags if t in grammar and
+                                      grammar[t].get("placement", "either") == "box"]
+                    if known_box_tags:
+                        placement_text += (
+                            f"\nWARNING: tags {known_box_tags} have box placement — "
+                            f"this memory belongs at {correct_store}"
+                        )
+            except Exception:
+                pass
+    parts.append(placement_text)
+
+    # Assemble and enforce budget
+    result = "\n\n".join(parts)
+    if len(result) <= WRITE_CONTEXT_BUDGET:
+        return result
+
+    # Budget overflow: rebuild with digest (replace full grammar with digest)
+    parts_trimmed = []
+    # Always keep preamble (a)
+    parts_trimmed.append(parts[0])
+
+    # Try digest instead of full grammar
+    grammar_path = Path(memdir) / "_grammar.md"
+    if grammar_path.exists():
+        entries = parse_grammar_md(grammar_path)
+        if entries:
+            digest = _grammar_digest(entries)
+            parts_trimmed.append("--- Grammar Vocabulary (digest) ---\n" + digest)
+
+    # Re-add candidates (c) if space allows
+    cand_section = next((p for p in parts if p.startswith("--- Dedup Candidates ---")), None)
+    if cand_section:
+        parts_trimmed.append(cand_section)
+
+    # Always add placement guidance (d)
+    parts_trimmed.append(placement_text)
+
+    result = "\n\n".join(parts_trimmed)
+    if len(result) <= WRITE_CONTEXT_BUDGET:
+        return result
+
+    # Still over budget: truncate candidate list then digest tail
+    result = result[:WRITE_CONTEXT_BUDGET]
+    return result
+
+
 # ---------------------------------------------------------------- CLI
 def _arg(flag, default=None):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else default
@@ -1379,6 +1549,20 @@ def main():
         ef = _arg("--event")
         event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
         print(json.dumps(search(memdir, event), ensure_ascii=False))
+        return 0
+    if cmd == "write-context":
+        # D-08: build the budget-allocated composite for memory-write-context.sh.
+        # Reads event JSON from stdin or --event FILE; prints composite to stdout.
+        # ALWAYS returns 0, even for empty output (context hook must never block).
+        ef = _arg("--event")
+        try:
+            raw = (Path(ef).read_text() if ef else sys.stdin.read()) or "{}"
+            event = json.loads(raw)
+        except (json.JSONDecodeError, OSError, TypeError):
+            event = {}
+        composite = write_context(memdir, event)
+        if composite:
+            sys.stdout.write(composite)
         return 0
     if cmd == "router-check":
         rc, msgs = validate_router(memdir / "MEMORY.md", memdir)
