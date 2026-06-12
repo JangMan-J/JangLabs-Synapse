@@ -26,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Self-locate the engine using the _review_game.py pattern
+# Self-locate the engine: sys.path.insert on <repo>/lib
 _HERE = Path(__file__).resolve()
 _LAB = _HERE.parents[2]  # tests/memory_surface/ -> tests/ -> lab/
 sys.path.insert(0, str(_LAB / "lib"))
