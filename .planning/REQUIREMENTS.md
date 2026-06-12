@@ -71,13 +71,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmap) | | |
+| CORE-01 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Pending |
+| CORE-07 | Phase 1 | Pending |
+| ORG-04 | Phase 1 | Pending |
+| MIG-01 | Phase 1 | Pending |
+| CORE-03 | Phase 2 | Pending |
+| CORE-04 | Phase 2 | Pending |
+| CORE-05 | Phase 2 | Pending |
+| CORE-06 | Phase 2 | Pending |
+| CORE-08 | Phase 2 | Pending |
+| CORE-09 | Phase 2 | Pending |
+| MIG-02 | Phase 2 | Pending |
+| CUR-01 | Phase 3 | Pending |
+| CUR-02 | Phase 3 | Pending |
+| CUR-03 | Phase 3 | Pending |
+| CUR-04 | Phase 3 | Pending |
+| CUR-05 | Phase 3 | Pending |
+| ORG-01 | Phase 4 | Pending |
+| ORG-02 | Phase 4 | Pending |
+| ORG-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 20 total
-- Mapped to phases: 0
-- Unmapped: 20 ⚠️ (roadmap pending)
+- Mapped to phases: 20
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-11 after initial definition*
+*Last updated: 2026-06-11 after roadmap creation (traceability mapped)*
