@@ -867,6 +867,15 @@ def maintenance(memdir, shadow=False):
 
         fires, reads = _read_telemetry(tel_path, window_days)
 
+        # WR-01 claim-then-mutate: advance _maintenance_state.json BEFORE applying
+        # any mutation. A pass killed mid-loop (2s hook timeout, transient OSError)
+        # then LOSES one pass instead of REPLAYING it next SessionStart — the
+        # fail-safe direction. Replaying re-increments declineCount for every
+        # already-demoted memory each session until the failure clears (the
+        # 22-demotion class via partial-pass replay).
+        if not shadow:
+            _update_maintenance_state(memdir)
+
         promoted, demoted, zero_fire = [], [], []
         for p in _memory_files(memdir):
             stem = p.stem
@@ -892,7 +901,7 @@ def maintenance(memdir, shadow=False):
         summary = f"{len(demoted)} demoted, {len(promoted)} promoted"
         if not shadow:
             print(summary)
-            _update_maintenance_state(memdir)
+            # state already claimed before the mutation loop (WR-01)
             # CUR-05: seat governance runs with the same telemetry, same D-40 cadence
             try:
                 seats(memdir)

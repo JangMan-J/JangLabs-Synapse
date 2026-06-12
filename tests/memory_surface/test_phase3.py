@@ -782,6 +782,33 @@ class MaintenancePass(unittest.TestCase):
         self.assertIsInstance(state["lastPassLine"], int)
         self.assertGreater(state["lastPassLine"], 0)
 
+    # ── WR-01: claim-then-mutate — state advances even when the pass dies mid-loop ──
+    def test_state_claimed_before_mutations(self):
+        """A pass that fails mid-mutation must still have advanced
+        _maintenance_state.json (claim-then-mutate): the next SessionStart then
+        loses one pass instead of replaying it and re-incrementing declineCount."""
+        _make_memory(self.store, "mem-claim-a", decline=0)
+        _make_memory(self.store, "mem-claim-b", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-claim-a", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += [_make_tel_record("mem-claim-b", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += self._evidence()
+        self._write_tel(lines)
+        # Make one demote candidate unreadable so _apply_score_delta raises mid-loop
+        (self.store / "mem-claim-a.md").chmod(0o000)
+        try:
+            result = ms.maintenance(self.store)
+        finally:
+            (self.store / "mem-claim-a.md").chmod(0o644)
+        # Pass failed open (fallback dict), but the state claim must have landed
+        self.assertIsInstance(result, dict)
+        state_path = self.store / "_maintenance_state.json"
+        self.assertTrue(state_path.exists(),
+                        "state must be claimed BEFORE mutations (WR-01)")
+        state = json.loads(state_path.read_text())
+        self.assertGreater(state.get("lastPassLine", 0), 0,
+                           "claimed state must record the telemetry line count")
+
     # ── Non-shadow pass prints summary to stdout ──────────────────────────────
     def test_cli_maintenance_prints_summary(self):
         """CLI 'maintenance' subcommand prints 'N demoted, M promoted' to stdout."""
