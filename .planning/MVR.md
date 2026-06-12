@@ -1,6 +1,6 @@
 # MVR Gate: Minimum Viable Replacement Checklist
 
-> **Status:** OPEN (Phase 2 may remove the old routing path only when ALL items are CHECKED)
+> **Status:** CLOSED — flip commit 392f351 (2026-06-12). All items checked before the flip (MIG-01). No window where old memories were unreachable (MIG-02). Legacy routing path removed in one revertable commit. Rollback: `git revert 392f351` + `touch ~/.claude/projects/-home-jangmanj/memory/.surface-disabled` (remove after revert).
 
 The items below define what "done" means for the Phase 1 → Phase 2 cutover. Each item
 names how it will be *demonstrated*, not merely asserted. The gate is checked at Phase 2
@@ -63,7 +63,7 @@ completion, not before.
   absent, confirming exit 0 and no output (not an error condition).
   *Demonstrated 2026-06-12:* empty fixture store (no catalog); `memory-recall.sh` → exit=0, stdout 0 bytes, stderr 0 bytes; PASS: exit 0 (never rc 2)
 
-- [ ] **Old-path removal steps enumerated** — an explicit ordered list of what gets
+- [x] **Old-path removal steps enumerated** — an explicit ordered list of what gets
   removed/disabled, with a verification step per item:
   1. Retire `memory-recall.sh` routing behavior (the tag-based `search` path): disable
      and replace with the new trigger-indexed path; verify by running recall probes on
@@ -76,6 +76,11 @@ completion, not before.
      graph.
   4. Mark `_tags.md` and `_tag_links.md` as legacy with a header comment; commit the
      header change; verify no validation errors in the new system.
+  *Demonstrated 2026-06-12 (flip commit 392f351):*
+  Step 1: live probes pass through `hooks/memory-recall.sh` with NO env override → fixture 5/5 fire, 5/5 silent; `grep -c "search_new|MEMORY_SURFACE_SEARCH_IMPL" lib/memory_surface.py` → 0
+  Step 2: `search()` body grep clean of parse_tags_md/_tags.md (docstrings/comments filtered); `grep -rn "_tag_links" hooks/` shows only write-path hooks (memory-write-guard, catalog-refresh, write-context)
+  Step 3: same for parse_tag_links/_tag_links.md; `memory-recall.sh` has no _tag_links reference
+  Step 4: both taxonomy files open with LEGACY HTML comment; `python3 lib/memory_surface.py validate` → exit 0; 284 tests pass
 
 ---
 
