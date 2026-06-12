@@ -1095,12 +1095,15 @@ def path_tag_hits(abspath, path_tags):
 
 
 def extract_tokens(event, active, aliases, path_tags, memdir):
-    """Per-tool evidence extraction (§11). Returns {tokens, pathRuleTags}: tokens is a list of
-    {value, kind, strength}; pathRuleTags is the set of tags emitted by matched path rules."""
+    """Per-tool evidence extraction (§11). Returns {tokens, pathRuleTags, paths}: tokens is a
+    list of {value, kind, strength}; pathRuleTags is the set of tags emitted by matched path
+    rules; paths is the list of canonicalized absolute paths (new in Plan 02-02 for search_new
+    byPath lookup — legacy callers ignore this key)."""
     tool = event.get("tool_name", "") or ""
     ti = event.get("tool_input", {}) or {}
     cwd = event.get("cwd", "") or ""
     seen, tokens, path_rule_tags = set(), [], set()
+    abs_paths = []   # Plan 02-02: collect canonicalized abspaths for search_new byPath lookup
 
     def add(value, kind, strength):
         v = _norm(value)
@@ -1110,6 +1113,8 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
 
     def add_path(raw):
         ap = _abspath(raw, cwd)
+        if ap not in abs_paths:          # collect unique abspaths for search_new (Plan 02-02)
+            abs_paths.append(ap)
         for tags, _ in path_tag_hits(ap, path_tags):
             path_rule_tags.update(tags)
         base = ap.rsplit("/", 1)[-1]
@@ -1191,7 +1196,7 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
                         add(w, "tag", "strong")        # a library that IS a known tag = strong signal
                     else:
                         add(w, "package", "weak")
-    return {"tokens": tokens, "pathRuleTags": path_rule_tags}
+    return {"tokens": tokens, "pathRuleTags": path_rule_tags, "paths": abs_paths}
 
 
 # ---------------------------------------------------------------- queryHash (§15)
@@ -1310,8 +1315,14 @@ def surface_text(query_id, mode, confidence, results, cfg):
     out = [f'<memory-recall query-id="{_esc(query_id)}" mode="{_esc(mode)}" '
            f'confidence="{_esc(confidence)}">', "Possible memory match for this tool call.", ""]
     for i, r in enumerate(results, 1):
+        # Plan 02-02: render evidence tuples when present (D-26 _render_tuples path);
+        # fall back to legacy 'matched {tags}' format for pre-flip results without tuples.
+        if r.get("evidenceTuples"):
+            why = _render_tuples(r["evidenceTuples"])
+        else:
+            why = f"matched {_esc(', '.join(r['matchedTags']))}"
         out += [f"{i}. {_esc(r['file'])}", f"   path: {_esc(r['path'])}",
-                f"   why: matched {_esc(', '.join(r['matchedTags']))}",
+                f"   why: {why}",
                 f"   note: {_trunc_escaped(r['description'], maxd)}"]
     out.append("</memory-recall>")
     block = "\n".join(out)
@@ -1433,6 +1444,346 @@ def search(memdir, event, now=None):
             "description": mem["description"], "tags": mem["tags"], "matchedTags": matched,
             "score": score, "mustRead": confidence == "high" and strict,
         })
+    return {"schemaVersion": 1, "queryId": qid, "mode": rmode, "confidence": confidence,
+            "tokens": tokens, "canonicalTags": canon_tags, "results": results,
+            "surfaceText": surface_text(qid, rmode, confidence, results, cfg) if results else ""}
+
+
+# ================================================================ Plan 02-02: search_new() — staged trigger-index matcher
+# These helpers and search_new() are the NEW read path, dispatched via the
+# 'search-new' CLI subcommand or MEMORY_SURFACE_SEARCH_IMPL=new env override.
+# They are TEMPORARY scaffolding deleted at the Plan 02-04 flip (D-30).
+# After the flip, search_new is renamed to search and this comment block removed.
+
+# Tier weights for evidence scoring (D-27). Module constant; can be overridden via
+# optional 'tierWeights' key in _memory_surface_config.json (merged inside search_new,
+# not in DEFAULT_CONFIG, to keep the existing config schema untouched).
+TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
+
+
+def _match_paths(abspaths, by_path):
+    """Return list of (memory_id, trigger_type, matched_value, entry) for every byPath hit.
+
+    Applies path_tag_hits()-parity semantics (§7):
+    - /** trailing suffix: prefix match (abspath == prefix OR starts with prefix + '/')
+    - mid-** patterns: IGNORED (§7 sanctioned only as trailing /**)
+    - exact fnmatchcase otherwise
+
+    Patterns stored in by_path keys are already expanded (~ → home) by the compiler.
+    The entry's 'pattern' field preserves the original form.
+    """
+    hits = []
+    for stored_key, entries in by_path.items():
+        # Apply expansion to stored key (already expanded by compiler, but belt-and-suspenders)
+        p = _expand(stored_key)
+        matched = False
+        if p.endswith("/**"):
+            prefix = p[:-3]
+            for ap in abspaths:
+                if ap == prefix or ap.startswith(prefix + "/"):
+                    matched = True
+                    break
+        elif "**" in p:
+            continue   # mid-** is not supported (§7)
+        else:
+            for ap in abspaths:
+                if fnmatch.fnmatchcase(ap, p):
+                    matched = True
+                    break
+        if matched:
+            for entry in entries:
+                hits.append((entry, abspaths))
+    return hits
+
+
+def _score_tuples(tuples, mem, cfg, now, tier_weights):
+    """Compute score from firing tuples + type boost - stale/decline penalties (D-27).
+
+    score = sum(tier_weights[tier] for distinct (tag, trigger_type) tuples)
+          + _type_boost(mem.type)
+          - 5 * stale
+          - 2 * min(declineCount, 3)
+
+    Tuples are already deduped by (tag, trigger_type) before this call.
+    """
+    score = 0.0
+    for tup in tuples:
+        tt = tup.get("trigger_type", "weak")
+        # Map trigger_type to tier: command/path → strong; arg → medium; synonym → weak
+        if tt in ("command", "path", "unit", "tag"):
+            tier = "strong"
+        elif tt in ("arg",):
+            tier = "medium"
+        else:
+            tier = "weak"
+        score += tier_weights.get(tier, tier_weights["weak"])
+    score += _type_boost(mem.get("type", ""))
+    stale = 1 if _is_stale(mem.get("lastReviewed", ""), now) else 0
+    score -= 5 * stale
+    decline = min(int(mem.get("declineCount", 0) or 0), 3)
+    score -= 2 * decline
+    return score
+
+
+def _confidence_new(score, cfg):
+    """Map score to confidence label using existing load_config threshold keys (D-27)."""
+    if score >= cfg.get("confidenceHighThreshold", 10):
+        return "high"
+    if score >= cfg.get("confidenceMediumThreshold", 6):
+        return "medium"
+    return "low"
+
+
+def _render_tuples(tuples):
+    """Render evidence tuples as '{tag} ← {trigger_type}:{matched_value}' joined by '; '.
+
+    The ← marker is the probe assertion token (D-32). Each field is _esc()-escaped.
+    Capped at 3 tuples per memory to keep the surface block compact.
+    """
+    parts = []
+    for t in tuples[:3]:
+        parts.append(
+            f"{_esc(t['tag'])} ← {_esc(t['trigger_type'])}:{_esc(t['matched_value'])}"
+        )
+    return "; ".join(parts) if parts else "matched (no tuple)"
+
+
+def _meets_min_candidate_new(tuples, tier_weights):
+    """Surface gate: a memory surfaces only if ≥1 strong-tier tuple OR ≥2 tuples total.
+
+    A single synonym-only (weak) match violates both conditions → SILENT (CORE-06/D-27).
+    """
+    if len(tuples) >= 2:
+        return True
+    if len(tuples) == 1:
+        tt = tuples[0].get("trigger_type", "weak")
+        tier = "strong" if tt in ("command", "path", "unit", "tag") else (
+            "medium" if tt == "arg" else "weak"
+        )
+        return tier == "strong"
+    return False
+
+
+def search_new(memdir, event, now=None):
+    """Trigger-index matcher — staged implementation (Plan 02-02, D-30).
+
+    Reads ONLY the precomputed catalog (triggerIndex + recallVocab + tagToMemoryIds).
+    NEVER calls parse_tags_md / parse_tag_links — those are inert after the flip.
+    NEVER calls rebuild() — missing/corrupt catalog returns _empty_response() (fail-closed).
+
+    Dispatched via:
+      - CLI subcommand 'search-new'
+      - MEMORY_SURFACE_SEARCH_IMPL=new env override on the 'search' CLI branch
+    Both dispatch mechanisms are TEMPORARY and deleted at the Plan 02-04 flip (D-30).
+    """
+    # ---- Guard prologue (copy verbatim from legacy search, D-28) ----
+    now = now or datetime.date.today()
+    cfg = load_config(memdir)
+    rmode = _response_mode(cfg)
+    if not cfg.get("enabled", True) or cfg.get("mode") == "disabled" \
+            or (memdir / ".surface-disabled").exists():
+        return _empty_response(rmode)
+    catalog = _load_catalog(memdir)
+    if catalog is None:                  # missing/corrupt catalog -> fail closed (never rebuild)
+        return _empty_response(rmode)
+
+    # ---- Read routing tables from catalog (never from _tags.md/_tag_links.md) ----
+    vocab = catalog.get("recallVocab", {})
+    active = set(vocab.get("active", []))
+    aliases = vocab.get("aliases", {})
+    index = catalog.get("triggerIndex", {})
+    tag_to_mids = catalog.get("tagToMemoryIds", {})
+
+    # ---- Merge optional tierWeights config override ----
+    tw = dict(TIER_WEIGHTS)
+    config_tw = cfg.get("tierWeights")
+    if isinstance(config_tw, dict):
+        tw.update(config_tw)
+
+    # ---- Token extraction (empty path_tags — path routing now via byPath in matcher) ----
+    ext = extract_tokens(event, active, aliases, [], memdir)
+    tokens = ext["tokens"]
+    abs_paths = ext.get("paths", [])
+
+    # ---- One-pass matcher over both levels (D-25) ----
+    # hits[memory_id] = list of {tag, trigger_type, matched_value} tuples
+    hits = {}
+
+    def _add_hit(mid, tag, trigger_type, matched_value):
+        key = (tag, trigger_type)
+        existing = hits.setdefault(mid, [])
+        # Dedup by (tag, trigger_type) per memory
+        if not any(t["tag"] == tag and t["trigger_type"] == trigger_type for t in existing):
+            existing.append({"tag": tag, "trigger_type": trigger_type,
+                             "matched_value": matched_value})
+
+    by_command = index.get("byCommand", {})
+    by_arg = index.get("byArg", {})
+    by_synonym = index.get("bySynonym", {})
+    by_path = index.get("byPath", {})
+    by_memory_id = index.get("byMemoryId", {})
+
+    for tok in tokens:
+        v = tok["value"]
+        kind = tok["kind"]
+
+        # command/unit → byCommand (strong)
+        if kind in ("command", "unit"):
+            for entry in by_command.get(v, []):
+                _mid = entry["id"]
+                _tag = entry["id"]  # tag field = id (memory id or grammar tag id)
+                if entry.get("source") == "tag":
+                    # Tag-source: expand to all memories with this grammar tag
+                    _tag = entry["id"]  # grammar tag name
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "command", v)
+                else:
+                    # memory/memory-derived source: direct route
+                    _add_hit(_mid, _mid, "command", v)
+            # Also bySynonym for units (plan spec)
+            if kind == "unit":
+                for entry in by_synonym.get(v, []):
+                    _mid = entry["id"]
+                    if entry.get("source") == "tag":
+                        _tag = entry["id"]
+                        for mid in tag_to_mids.get(_tag, []):
+                            _add_hit(mid, _tag, "synonym", v)
+                    else:
+                        _add_hit(_mid, _mid, "synonym", v)
+
+        # argument → grammar tag-name match → strong; byArg → medium; bySynonym → weak
+        elif kind == "argument":
+            # Strong: value is a grammar tag name
+            if v in active:
+                for mid in tag_to_mids.get(v, []):
+                    _add_hit(mid, v, "tag", v)
+            # Medium: byArg hit
+            for entry in by_arg.get(v, []):
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "arg", v)
+                else:
+                    _add_hit(_mid, _mid, "arg", v)
+            # Weak: bySynonym hit
+            for entry in by_synonym.get(v, []):
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "synonym", v)
+                else:
+                    _add_hit(_mid, _mid, "synonym", v)
+
+        # tag (WebSearch/WebFetch/context7) → strong tag-name match; bySynonym → weak
+        elif kind == "tag":
+            if v in active:
+                for mid in tag_to_mids.get(v, []):
+                    _add_hit(mid, v, "tag", v)
+            elif v in aliases:
+                canon = aliases[v]
+                for mid in tag_to_mids.get(canon, []):
+                    _add_hit(mid, canon, "synonym", v)
+            # bySynonym for tag-kind tokens
+            for entry in by_synonym.get(v, []):
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "synonym", v)
+                else:
+                    _add_hit(_mid, _mid, "synonym", v)
+
+        # package/path-component → byCommand/bySynonym → weak
+        elif kind in ("package", "path"):
+            for entry in by_command.get(v, []):
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "synonym", v)
+                else:
+                    _add_hit(_mid, _mid, "synonym", v)
+            for entry in by_synonym.get(v, []):
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "synonym", v)
+                else:
+                    _add_hit(_mid, _mid, "synonym", v)
+
+    # ---- Path routing: byPath via /** semantics (strong tier) ----
+    for stored_key, entries in by_path.items():
+        p = _expand(stored_key)
+        path_matched = None
+        if p.endswith("/**"):
+            prefix = p[:-3]
+            for ap in abs_paths:
+                if ap == prefix or ap.startswith(prefix + "/"):
+                    path_matched = ap
+                    break
+        elif "**" in p:
+            continue   # mid-** not supported (§7)
+        else:
+            for ap in abs_paths:
+                if fnmatch.fnmatchcase(ap, p):
+                    path_matched = ap
+                    break
+        if path_matched is not None:
+            for entry in entries:
+                _mid = entry["id"]
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        _add_hit(mid, _tag, "path", path_matched)
+                else:
+                    _add_hit(_mid, _mid, "path", path_matched)
+
+    # ---- Score, gate, rank ----
+    all_mems = {m["id"]: m for m in catalog.get("memories", [])}
+    scored = []
+    for mid, tuples in hits.items():
+        if mid not in all_mems:
+            continue
+        mem = all_mems[mid]
+        if not _meets_min_candidate_new(tuples, tw):
+            continue
+        score = _score_tuples(tuples, mem, cfg, now, tw)
+        scored.append((score, tuples, mem))
+
+    scored.sort(key=lambda x: (
+        -x[0],
+        TYPE_PRIORITY.get(x[2].get("type", ""), 9),
+        _neg_date(x[2].get("lastReviewed", "")),
+        x[2].get("file", "")
+    ))
+
+    top = scored[:cfg.get("maxResults", 3)]
+    confidence = _confidence_new(top[0][0], cfg) if top else "low"
+    strict = cfg.get("mode") == "strict-high-confidence"
+
+    # ---- Build canonical tags + query hash ----
+    canon_tags = sorted({aliases.get(t["value"], t["value"]) for t in tokens
+                         if aliases.get(t["value"], t["value"]) in active}
+                        | {tup["tag"] for _, tuples, _ in top
+                           for tup in tuples if tup["tag"] in active})
+    strong_tokens = sorted({t["value"] for t in tokens if t["strength"] == "strong"})
+    qhash = query_hash(event.get("tool_name", "") or "", canon_tags, strong_tokens)
+    qid = "memq_" + qhash.split(":")[1][:12]
+
+    # ---- Assemble results with evidenceTuples ----
+    results = []
+    for score, tuples, mem in top:
+        results.append({
+            "id": mem["id"], "path": mem["path"], "file": mem["file"], "name": mem["name"],
+            "description": mem["description"], "tags": mem["tags"],
+            "matchedTags": sorted({tup["tag"] for tup in tuples}),
+            "score": score, "mustRead": confidence == "high" and strict,
+            "evidenceTuples": tuples,
+        })
+
     return {"schemaVersion": 1, "queryId": qid, "mode": rmode, "confidence": confidence,
             "tokens": tokens, "canonicalTags": canon_tags, "results": results,
             "surfaceText": surface_text(qid, rmode, confidence, results, cfg) if results else ""}
@@ -1833,7 +2184,21 @@ def main():
     if cmd == "search":
         ef = _arg("--event")
         event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
-        print(json.dumps(search(memdir, event), ensure_ascii=False))
+        # D-30 staged flip: dispatch to search_new when MEMORY_SURFACE_SEARCH_IMPL=new.
+        # TEMPORARY — both this env-dispatch and the 'search-new' subcommand below are
+        # deleted at the Plan 02-04 flip when search_new is renamed to search.
+        if os.environ.get("MEMORY_SURFACE_SEARCH_IMPL") == "new":
+            print(json.dumps(search_new(memdir, event), ensure_ascii=False))
+        else:
+            print(json.dumps(search(memdir, event), ensure_ascii=False))
+        return 0
+    if cmd == "search-new":
+        # D-30 TEMPORARY subcommand — lets offline probes and Plan 02-03 benchmarks invoke
+        # the new matcher directly without touching the live hook (which always calls 'search').
+        # Deleted at Plan 02-04 flip together with MEMORY_SURFACE_SEARCH_IMPL dispatch above.
+        ef = _arg("--event")
+        event = json.loads((Path(ef).read_text() if ef else sys.stdin.read()) or "{}")
+        print(json.dumps(search_new(memdir, event), ensure_ascii=False))
         return 0
     if cmd == "write-context":
         # D-08: build the budget-allocated composite for memory-write-context.sh.
