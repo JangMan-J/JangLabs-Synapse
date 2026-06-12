@@ -699,56 +699,69 @@ def compile_trigger_index(grammar, memories_meta):
 # ---------------------------------------------------------------- maintenance pass (Phase 3, Plan 02)
 
 def _read_telemetry(tel_path, window_days):
-    """Parse _recall_telemetry.jsonl; return ({id: fire_count}, {id: read_count}).
+    """Parse _recall_telemetry.jsonl (+ its .1 rotation generation); return
+    ({id: fire_count}, {id: read_count}).
 
     Only includes records within the last window_days (rectangular window — D-41).
     Fire records have a "qid" key; read records have signal=="read".
     Session records ({signal:"session"}) and malformed lines are silently skipped.
     Supports both ISO-8601 UTC strings (e.g. '2026-06-12T10:00:00Z') and epoch integers.
+
+    WR-04: the .1 generation is read FIRST (chronologically older) so a 1MB
+    rotation does not strand pre-rotation read signals while fresh fires for
+    the same memories accumulate in the new file (read_rate biased toward 0).
+    The window filter discards out-of-window records either way; total size is
+    bounded at ~2MB (one _TEL_MAX per generation).
     """
     fires, reads = {}, {}
-    if not tel_path.exists():
-        return fires, reads
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=window_days)
-    for line in tel_path.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    for p in (tel_path.with_name(tel_path.name + ".1"), tel_path):
         try:
-            rec = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        # Parse timestamp (defensive: ISO-8601 or epoch integer)
-        ts_raw = rec.get("ts", "")
-        try:
-            if isinstance(ts_raw, (int, float)):
-                ts = datetime.datetime.fromtimestamp(ts_raw, tz=datetime.timezone.utc)
-            else:
-                ts = datetime.datetime.fromisoformat(str(ts_raw).rstrip("Z") + "+00:00")
-        except (ValueError, TypeError, OSError):
-            ts = None
-        # Fire record: has "qid" key
-        if "qid" in rec:
-            if ts is None or ts < cutoff:
+            if not p.exists():
                 continue
-            for mem in (rec.get("mems") or []):
-                mid = mem.get("id", "")
+            text = p.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            # Parse timestamp (defensive: ISO-8601 or epoch integer)
+            ts_raw = rec.get("ts", "")
+            try:
+                if isinstance(ts_raw, (int, float)):
+                    ts = datetime.datetime.fromtimestamp(ts_raw, tz=datetime.timezone.utc)
+                else:
+                    ts = datetime.datetime.fromisoformat(str(ts_raw).rstrip("Z") + "+00:00")
+            except (ValueError, TypeError, OSError):
+                ts = None
+            # Fire record: has "qid" key
+            if "qid" in rec:
+                if ts is None or ts < cutoff:
+                    continue
+                for mem in (rec.get("mems") or []):
+                    mid = mem.get("id", "")
+                    if mid:
+                        fires[mid] = fires.get(mid, 0) + 1
+            # Read-signal record: has signal == "read"
+            elif rec.get("signal") == "read":
+                # Read signals: apply window only if ts is parseable; otherwise skip
+                if ts is not None and ts < cutoff:
+                    continue
+                mid = rec.get("id", "")
                 if mid:
-                    fires[mid] = fires.get(mid, 0) + 1
-        # Read-signal record: has signal == "read"
-        elif rec.get("signal") == "read":
-            # Read signals: apply window only if ts is parseable; otherwise skip
-            if ts is not None and ts < cutoff:
-                continue
-            mid = rec.get("id", "")
-            if mid:
-                reads[mid] = reads.get(mid, 0) + 1
-        # Other records (signal:"session", unknown) silently skipped
+                    reads[mid] = reads.get(mid, 0) + 1
+            # Other records (signal:"session", unknown) silently skipped
     return fires, reads
 
 
 def _evidence_stats(tel_path):
-    """Return (session_days, span_days) across ALL telemetry records.
+    """Return (session_days, span_days) across ALL telemetry records, including
+    the .1 rotation generation when present (WR-04).
 
     session_days: number of DISTINCT calendar days (UTC) carrying at least one
     {signal:"session"} SessionStart marker (03-02 Block 1). Dedupe-per-day
@@ -768,10 +781,17 @@ def _evidence_stats(tel_path):
     Fail-open: missing/unreadable file -> (0, 0.0).
     """
     session_days, oldest = set(), None
-    try:
-        if not tel_path.exists():
-            return 0, 0.0
-        for line in tel_path.read_text().splitlines():
+    # WR-04: include the .1 rotation generation — without it every rotation
+    # resets session-day count and span to ~zero, silently suspending
+    # self-curation for up to 30 days while the window re-accumulates.
+    for p in (tel_path.with_name(tel_path.name + ".1"), tel_path):
+        try:
+            if not p.exists():
+                continue
+            text = p.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -791,8 +811,6 @@ def _evidence_stats(tel_path):
                 session_days.add(ts.date())
             if oldest is None or ts < oldest:
                 oldest = ts
-    except OSError:
-        return 0, 0.0
     if oldest is None:
         return len(session_days), 0.0
     span = (datetime.datetime.now(datetime.timezone.utc) - oldest).total_seconds() / 86400.0

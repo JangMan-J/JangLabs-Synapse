@@ -818,6 +818,32 @@ class MaintenancePass(unittest.TestCase):
         self.assertIsInstance(state["lastPassLine"], int)
         self.assertGreater(state["lastPassLine"], 0)
 
+    # ── WR-04: the .1 rotation generation still feeds evidence + rates ────────
+    def test_rotation_generation_included(self):
+        """Records stranded in _recall_telemetry.jsonl.1 by a rotation still count:
+        the evidence guard and read_rate must see BOTH generations (WR-04 — a
+        rotation must neither suspend self-curation nor bias read_rate to 0)."""
+        _make_memory(self.store, "mem-rot", decline=0)
+        _make_memory(self.store, "mem-rot-read", decline=2)
+        ms.rebuild(self.store)
+        # Pre-rotation generation carries the evidence, fires, and read signals
+        old_gen = [_make_tel_record("mem-rot", _now_ts(), "fire", f"_o{i}") for i in range(10)]
+        old_gen += [_make_tel_record("mem-rot-read", _now_ts(), "fire", f"_r{i}") for i in range(10)]
+        old_gen += [_make_tel_record("mem-rot-read", _now_ts(), "read") for _ in range(8)]
+        old_gen += self._evidence()
+        (self.store / "_recall_telemetry.jsonl.1").write_text("\n".join(old_gen) + "\n")
+        # Post-rotation current file is thin (rotation just happened)
+        self._write_tel([_make_tel_record("mem-rot", _now_ts(), "fire", "_new")])
+
+        result = ms.maintenance(self.store)
+
+        self.assertFalse(result.get("insufficient_evidence"),
+                         "evidence in the .1 generation must still count")
+        self.assertIn("mem-rot", result["demoted"],
+                      "fires in .1 must count toward the demote rate")
+        self.assertIn("mem-rot-read", result["promoted"],
+                      "read signals stranded in .1 must count toward read_rate")
+
     # ── WR-02: O_EXCL advisory lock — concurrent passes cannot double-mutate ──
     def _demote_fixture(self, stem):
         """Memory + telemetry that makes `stem` a demote candidate with evidence met."""
