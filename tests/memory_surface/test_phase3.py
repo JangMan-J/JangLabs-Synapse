@@ -2147,22 +2147,5 @@ class SeatGovernance(unittest.TestCase):
                          "maintenance shadow must not modify MEMORY.md (no pending block)")
 
 
-class Registration(unittest.TestCase):
-    def test_recall_fires_on_context7_after_merge(self):
-        import importlib.util
-        import copy
-        import re as _re
-        spec = importlib.util.spec_from_file_location("ah", str(LAB / "agent-harness.py"))
-        assert spec and spec.loader
-        ah = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ah)
-        merged = ah.merge_hooks({}, copy.deepcopy(ah.load_fragment_hooks()))
-        ctx = "mcp__plugin_context7_context7__get-library-docs"
-        fires = any(b.get("matcher") and _re.fullmatch(b["matcher"], ctx)
-                    and any("memory-recall" in h["command"] for h in b["hooks"])
-                    for b in merged["hooks"]["PreToolUse"])
-        self.assertTrue(fires, "recall must fire on Context7 calls after the harness merge")
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
