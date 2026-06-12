@@ -92,20 +92,30 @@ surface=$(printf '%s' "$_surface_b64" | base64 -d 2>/dev/null || true)
 
 # Dedup per MEMORY (not per queryId): emit only if some matched memory was NOT surfaced
 # within the last 15 minutes (~900s TTL); then refresh the marks for all of them.
+# Mark-dir hardening: the XDG_RUNTIME_DIR-less fallback is ~/.cache (user-owned),
+# NEVER a predictable world-writable /tmp path where a co-resident user could
+# pre-plant the dir or symlink marks (`: >` follows symlinks → file truncation).
+# If the mark dir is a symlink, not a dir, or not owned by us, skip dedup entirely
+# (fail open: the advisory still emits, we just don't keep marks). Never write
+# through an existing symlinked mark file.
 if [ -n "$ids" ]; then
-  DD="${XDG_RUNTIME_DIR:-/tmp/claude-$(id -u 2>/dev/null || echo u)}/claude-memory-recall"
-  mkdir -p "$DD" 2>/dev/null || true
-  fresh=0
-  for id in $ids; do
-    MARK="$DD/m_${id//[^A-Za-z0-9._-]/_}"
-    if ! { [ -f "$MARK" ] && [ -n "$(find "$MARK" -mmin -15 2>/dev/null)" ]; }; then
-      fresh=1
-    fi
-  done
-  [ "$fresh" -eq 1 ] || exit 0
-  for id in $ids; do
-    : > "$DD/m_${id//[^A-Za-z0-9._-]/_}" 2>/dev/null || true
-  done
+  DD="${XDG_RUNTIME_DIR:-$HOME/.cache}/claude-memory-recall"
+  mkdir -p -m 700 "$DD" 2>/dev/null || true
+  if [ -d "$DD" ] && [ ! -L "$DD" ] && [ -O "$DD" ]; then
+    fresh=0
+    for id in $ids; do
+      MARK="$DD/m_${id//[^A-Za-z0-9._-]/_}"
+      if ! { [ -f "$MARK" ] && [ -n "$(find "$MARK" -mmin -15 2>/dev/null)" ]; }; then
+        fresh=1
+      fi
+    done
+    [ "$fresh" -eq 1 ] || exit 0
+    for id in $ids; do
+      MARK="$DD/m_${id//[^A-Za-z0-9._-]/_}"
+      [ -L "$MARK" ] && continue
+      : > "$MARK" 2>/dev/null || true
+    done
+  fi
 fi
 
 # Emit advisory additionalContext. NEVER deny in v1 (mustRead/required is Phase 4). Force the
