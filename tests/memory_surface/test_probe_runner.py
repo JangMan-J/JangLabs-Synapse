@@ -494,10 +494,12 @@ def _run_with_summary(mode_label: str) -> bool:
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     passed = result.wasSuccessful()
-    fire_ok = 5 - len([e for e in result.failures + result.errors
-                        if "F" in str(e[0])])
-    sil_ok = 5 - len([e for e in result.failures + result.errors
-                       if "S" in str(e[0])])
+    # Count by test-method-name PREFIX, never by substring on the test repr:
+    # str(e[0]) includes the class name ("ShouldFireProbes" contains both F and S),
+    # so substring matching decremented BOTH counters on any single failure (WR-06).
+    fails = {e[0]._testMethodName for e in result.failures + result.errors}
+    fire_ok = 5 - sum(1 for n in fails if n.startswith("test_F"))
+    sil_ok = 5 - sum(1 for n in fails if n.startswith("test_S"))
     status = "PASS" if passed else "FAIL"
     print(f"\nMVR-PROBE-SUMMARY [{mode_label}] {status}: "
           f"{fire_ok}/5 fire, {sil_ok}/5 silent — "
