@@ -541,6 +541,37 @@ ALSA microphone routing notes.
         self.assertEqual(rc, 0,
                          f"Distinct new memory must not be denied by backstop; msg: {msg!r}")
 
+    def test_same_single_tag_distinct_description_new_file_allowed(self):
+        """WR-02: same single tag + distinct description → rc 0 for a NEW box file.
+
+        Tag overlap with a single shared tag must not, by itself plus function-word
+        description overlap, push a distinct memory past the 0.85 backstop. Before
+        the WR-02 fix (asymmetric tag overlap + no stopword stripping) this class
+        of legitimate new memory was spuriously denied as a duplicate.
+        """
+        new_path = str(self.store / "new-audio-distinct-subject.md")
+        same_tag_distinct = """\
+---
+name: bluetooth-headset-profile
+description: a note about bluetooth headset profile switching quirks
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [audio]
+  triggers:
+    commands: [bluetoothctl]
+    paths: []
+    args: [connect]
+    synonyms: []
+---
+
+Bluetooth headset notes.
+"""
+        rc, msg = ms.check_write(self.store, same_tag_distinct, target=new_path)
+        self.assertEqual(rc, 0,
+                         f"New box file with one shared tag but a distinct subject must "
+                         f"not be denied by the dedup backstop (WR-02); msg: {msg!r}")
+
 
 # ===========================================================================
 # PlacementGate — D-15 (graduated placement enforcement)

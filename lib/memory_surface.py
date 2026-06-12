@@ -62,6 +62,20 @@ Example:
 # Adjust fixtures, never loosen this value silently (D-11, D-12).
 DEDUP_BACKSTOP_THRESHOLD = 0.85
 
+# Stopwords stripped from descriptions before the bag-of-words cosine (WR-02): without
+# this, single-tag overlap (0.6) plus pure function-word/domain-noise cosine overlap
+# ("a", "about", "on this box", "memory", ...) pushed DISTINCT memories past 0.85.
+# English function words + store-domain noise words that appear in nearly every
+# memory description and carry no subject signal.
+DEDUP_STOPWORDS = frozenset((
+    "a", "an", "the", "this", "that", "these", "those", "it", "its",
+    "is", "are", "was", "be", "been",
+    "on", "in", "at", "of", "to", "for", "with", "from", "by", "via", "and", "or", "as",
+    "how", "what", "when", "where", "why", "which",
+    "use", "using", "used", "about", "into", "vs",
+    "box", "memory", "memories", "note", "notes", "lesson", "lessons",
+))
+
 # ---------------------------------------------------------------- write-context budget (Plan 01-03)
 # 500-char headroom under the 10,000-char additionalContext cap (D-08).
 WRITE_CONTEXT_BUDGET = 9500
@@ -1082,13 +1096,21 @@ def _load_catalog(memdir):
         return None
 
 
+def _dedup_words(text):
+    """Lowercased whitespace-split bag of words with DEDUP_STOPWORDS removed (WR-02)."""
+    return Counter(w for w in (text or "").lower().split() if w not in DEDUP_STOPWORDS)
+
+
 def dedup_candidates(memdir, proposed_tags, proposed_desc, top_n=5):
     """Return top-N most-similar existing memories by tag overlap + bag-of-words cosine (D-11 L1).
 
     Score = 0.6 * tag_overlap + 0.4 * cosine_bow, where:
-      tag_overlap = |proposed ∩ mem.tags| / max(len(proposed_tags), 1)
+      tag_overlap = Jaccard |proposed ∩ mem.tags| / max(|proposed ∪ mem.tags|, 1)
+                    (symmetric — WR-02: the old asymmetric |∩|/len(proposed) let a
+                    single shared tag saturate the full 0.6 against ANY existing memory)
       cosine_bow  = bag-of-words cosine on lowercased whitespace-split descriptions
-                    (Counter intersection; zero denominator → 0.0)
+                    with DEDUP_STOPWORDS removed (Counter intersection; zero
+                    denominator → 0.0)
 
     Returns list of (score, mem) pairs sorted descending. Empty list on missing/corrupt catalog.
     Stdlib only (D-11, RESEARCH.md Pattern 4).
@@ -1097,12 +1119,12 @@ def dedup_candidates(memdir, proposed_tags, proposed_desc, top_n=5):
     if catalog is None:
         return []
     prop_tags = set(proposed_tags or [])
-    prop_words = Counter((proposed_desc or "").lower().split())
+    prop_words = _dedup_words(proposed_desc)
     results = []
     for mem in catalog.get("memories", []):
         mem_tags = set(mem.get("tags", []) or [])
-        tag_overlap = len(prop_tags & mem_tags) / max(len(prop_tags), 1)
-        mem_words = Counter((mem.get("description", "") or "").lower().split())
+        tag_overlap = len(prop_tags & mem_tags) / max(len(prop_tags | mem_tags), 1)
+        mem_words = _dedup_words(mem.get("description", ""))
         # Bag-of-words cosine: intersection-sum / (L2-norm_prop * L2-norm_mem)
         intersection = sum((prop_words & mem_words).values())
         denom_sq = (sum(v * v for v in prop_words.values()) *

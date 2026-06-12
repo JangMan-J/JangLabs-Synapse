@@ -215,11 +215,15 @@ assert_contains "GUARD deny stderr contains 'triggers:' (D-09)" "triggers:" "$st
 
 echo "── GUARD: box-store allow (D-09) ──"
 # Same content WITH valid triggers → exit 0, no output.
-# Write to the existing fixture memory (not a new file) so the dedup backstop does not fire
-# (backstop only applies when the target is a new file that does not yet exist — D-11 Layer 2).
-out=$(mkwrite "$FIX/existing-lesson.md" "$GOOD_BOX" | "$GUARD" 2>&1); got_rc=$?
-rc_is "GUARD allow with triggers -> rc=0 (D-09)" 0 "$got_rc"
+# Target is a NEW file sharing a tag with the existing fixture memory but with a
+# DISTINCT description — the dedup backstop must NOT fire (WR-02 contract: single-tag
+# overlap plus stopword-level description overlap is not a near-certain duplicate).
+out=$(mkwrite "$FIX/new-distinct-memory.md" "$GOOD_BOX" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD allow with triggers, new distinct file -> rc=0 (D-09, WR-02)" 0 "$got_rc"
 assert_empty "GUARD allow: no output on valid write (D-09)" "$out"
+# Consolidation into the existing file is also allowed (backstop is new-file-only)
+out=$(mkwrite "$FIX/existing-lesson.md" "$GOOD_BOX" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD allow consolidation into existing file -> rc=0 (D-11)" 0 "$got_rc"
 
 echo "── GUARD: dark-memory deny (D-14+D-15) ──"
 # D-14+D-15: Write to <somerepo>/memory/lesson.md with box-placement tags → exit 2,
