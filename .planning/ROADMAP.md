@@ -110,7 +110,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Automated maintenance pass: engine maintenance/maintenance-shadow + SessionStart trigger + D-44 summary (CUR-03)
+- [x] 03-02-PLAN.md — Automated maintenance pass: engine maintenance/maintenance-shadow + SessionStart trigger + D-44 summary (CUR-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -145,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
-| 3. Telemetry & Self-Curation | 1/4 | In Progress|  |
+| 3. Telemetry & Self-Curation | 2/4 | In Progress|  |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
 ## Coverage

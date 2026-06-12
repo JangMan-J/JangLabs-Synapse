@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-06-12T18:03:13.560Z"
-last_activity: 2026-06-12 -- Phase 03 execution started
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-06-12T18:25:00.000Z"
+last_activity: 2026-06-12 -- Phase 03 Plan 02 complete (CUR-03)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 9
-  percent: 50
+  completed_plans: 10
+  percent: 58
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 03 (telemetry-self-curation) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 03 execution started
+Last activity: 2026-06-12 -- Phase 03 Plan 02 complete (CUR-03 delivered)
 
-Progress: [██░░░░░░░░] 31%
+Progress: [███░░░░░░░] 36%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [██░░░░░░░░] 31%
 | Phase 02 P03 | 45 minutes | 3 tasks | 3 files |
 | Phase 02 P04 | 90 | 3 tasks | 9 files |
 | Phase 03-telemetry-self-curation P01 | 6 | 3 tasks | 4 files |
+| Phase 03-telemetry-self-curation P02 | 18 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,9 @@ Recent decisions affecting current work:
 - [Phase 03]: [03-01] Timestamp format: ISO-8601 UTC via TZ=UTC0 printf -v bash builtin; 03-02 parser uses fromisoformat() — Fork-free bash builtin confirmed working; zero subprocess spawns
 - [Phase 03]: [03-01] _TEL_MAX=1048576 shell constant — saves ~3ms vs per-fire config jq spawn against ~1ms p95 headroom — Discretion-chosen constant documented in hook comment
 - [Phase 03]: [03-01] mems flat shape: per-evidenceTuple {id,tag,type,val}; zero-tuple results get sentinel element for fire-count — Ensures D-43 fire-counting never loses a memory
+- [Phase 03]: [03-02] Decay formula: rectangular window (records inside telemetryWindowDays count equally; older count zero) — legible, jq-auditable, pinned by contract test
+- [Phase 03]: [03-02] Session marker before at-$HOME skip — all sessions contribute to telemetry threshold count; D-44 summary discarded for $HOME sessions (no floor block)
+- [Phase 03]: [03-02] jq for state/config reads in hook — avoids Python spawn on no-op path; negative delta = rotation reset -> use cur_lines
 
 ### Pending Todos
 
@@ -118,6 +122,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T18:03:13.556Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-06-12T18:25:00.000Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
