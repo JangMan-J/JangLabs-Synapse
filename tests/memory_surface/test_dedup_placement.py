@@ -960,6 +960,28 @@ class WriteContextComposite(TempStore):
                         "Composite must contain dedup candidates for box-store events "
                         "(D-08 component c, D-12)")
 
+    def test_no_similarity_event_omits_dedup_candidates(self):
+        """WR-06: a box write with NO content (no proposed tags/description) must not
+        present arbitrary zero-similarity memories as consolidation targets.
+
+        Before the relevance floor, dedup_candidates() returned the top-N of ALL
+        memories with no minimum score, and the composite rendered all of them under
+        'WRITE INTO that existing file (consolidate)' — actively inviting wrong
+        consolidation.
+        """
+        event = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": str(self.store / "brand-new-memory.md"),
+                # no content key at all — proposed tags/desc are empty, all scores 0.0
+            },
+            "cwd": str(LAB),
+        }
+        result = ms.write_context(self.store, event)
+        self.assertNotIn("Dedup Candidates", result,
+                         "Zero-similarity candidates must be filtered by the relevance "
+                         "floor and the section skipped (WR-06)")
+
     def test_composite_contains_placement_guidance(self):
         """D-08(d): composite must contain placement guidance naming the box-store path."""
         event = self._make_box_event()

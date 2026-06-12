@@ -80,6 +80,12 @@ DEDUP_STOPWORDS = frozenset((
 # 500-char headroom under the 10,000-char additionalContext cap (D-08).
 WRITE_CONTEXT_BUDGET = 9500
 
+# Relevance floor for dedup candidates shown in the write-context composite (WR-06):
+# candidates scoring below this are noise — presenting zero-similarity memories as
+# consolidation targets invites wrong consolidation and burns composite budget.
+# Well below the 0.85 backstop; advisory section only, so a low floor is safe.
+DEDUP_CANDIDATE_FLOOR = 0.2
+
 
 # ---------------------------------------------------------------- store location
 def resolve_memdir(explicit=None):
@@ -1453,6 +1459,10 @@ def _write_context_impl(memdir, event, target=None):
             except Exception:
                 pass
         candidates = dedup_candidates(memdir, proposed_tags, proposed_desc, top_n=5)
+        # Relevance floor (WR-06): drop zero/near-zero-similarity memories — without
+        # this, ANY box write (even one with no content/tags) rendered five arbitrary
+        # memories as consolidation targets. Section is skipped entirely when empty.
+        candidates = [(s, m) for s, m in candidates if s >= DEDUP_CANDIDATE_FLOOR]
         if candidates:
             cand_lines = [
                 "--- Dedup Candidates ---",
