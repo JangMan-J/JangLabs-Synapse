@@ -10,19 +10,21 @@ completion, not before.
 
 ## Checklist
 
-- [ ] **All ~140 existing memories routable under the new system** — bulk trigger derivation
+- [x] **All ~140 existing memories routable under the new system** — bulk trigger derivation
   complete OR tag-only fallback confirmed working for every store memory.
   Demonstrated by: `python3 lib/memory_surface.py rebuild` output listing 0 unroutable
   memories (i.e., `invalidMemories` array is empty or every entry has a defined fallback
   routing path under the new trigger index).
+  *Demonstrated 2026-06-12:* `python3 lib/memory_surface.py rebuild` → exit 0, no UNROUTABLE lines; `jq '.routabilityReport.unroutableCount' _memory_catalog.json` → 0
 
-- [ ] **Reference probes pass both directions** — at least 5 obvious-should-fire synthetic
+- [x] **Reference probes pass both directions** — at least 5 obvious-should-fire synthetic
   payloads fire with their evidence tuple {tag, trigger_type, matched_value}; at least 5
   obvious-should-stay-silent payloads stay silent (no recall block emitted).
   Demonstrated by: probe script run output (script to be created in Phase 2 — CORE-09),
   with all 5+5 assertions passing and evidence tuples visible in the output.
+  *Demonstrated 2026-06-12:* `MEMORY_SURFACE_SEARCH_IMPL=new python3 tests/memory_surface/test_probe_runner.py` → fixture 5/5 fire, 5/5 silent (tuples: nvidia←command:nvidia-smi, remote-access←command:tailscale, systemd←command:systemctl, claude-harness←synonym:claude+path, boot←command:limine-mkinitcpio, terminal←synonym:kitty+path); `MEMORY_SURFACE_SEARCH_IMPL=new PROBE_LIVE=1 python3 tests/memory_surface/test_probe_runner.py` → live 5/5 fire, 5/5 silent
 
-- [ ] **Per-tool-call recall adds ≤ 55ms p95 wall time on this box** — measured by
+- [x] **Per-tool-call recall adds ≤ 55ms p95 wall time on this box** — measured by
   `tests/memory_surface/bench_recall.sh` (full-hook wall time, `date +%s%N` bracketing)
   over a minimum of 20 samples on the live box.
   Demonstrated by: benchmark output showing `gate=PASS` (p95 ≤ 55ms).
@@ -31,30 +33,35 @@ completion, not before.
   at 52–59ms p95, and the new path's optimized floor is 54ms (60ms pre-optimization) —
   faster than the system it replaces. Deeper levers (daemon, gate removal) are rejected
   by project constraints.
+  *Demonstrated 2026-06-12:* `bash tests/memory_surface/bench_recall.sh -n 20` → samples=20, p50_ms=50, p95_ms=54, gate=PASS (available memory: 20Gi, healthy-box conditions)
 
-- [ ] **Every recall block cites its evidence tuple** — the {tag, trigger_type, matched_value}
+- [x] **Every recall block cites its evidence tuple** — the {tag, trigger_type, matched_value}
   that fired the memory is present in every `<memory-recall>` block emitted by the new
   routing path, making wrong fires diagnosable in seconds from the block alone.
   Demonstrated by: probe output inspection confirming every block contains its evidence
   tuple, with no "matched tags" lines that name a tag without a firing trigger.
+  *Demonstrated 2026-06-12:* probe runner fixture output confirmed all fire blocks contain `← command:`, `← path:`, or `← synonym:` tuples; no tag named without a firing trigger; evidence: F1←command:nvidia-smi, F2←command:tailscale+command:systemctl, F3←synonym:claude+path, F4←command:limine-mkinitcpio, F5←synonym:kitty+path
 
-- [ ] **One command rebuilds the routing index fully from store contents from a cold state** —
+- [x] **One command rebuilds the routing index fully from store contents from a cold state** —
   deleting `_memory_catalog.json` and running `python3 lib/memory_surface.py rebuild` is
   sufficient to restore full routing functionality; no hand-edits, no migrations, no
   separate build steps.
   Demonstrated by: delete the catalog, run `python3 lib/memory_surface.py rebuild`, verify
   subsequent recall probes work correctly (probe script passes both directions again).
+  *Demonstrated 2026-06-12:* backed up catalog to /tmp, `rm _memory_catalog.json`, `python3 lib/memory_surface.py rebuild` → exit 0, catalog restored (168k), `test_probe_runner.py` fixture → 5/5 fire, 5/5 silent; backup removed
 
-- [ ] **Fail-open verified** — with `.surface-disabled` present in the store, all memory hooks
+- [x] **Fail-open verified** — with `.surface-disabled` present in the store, all memory hooks
   exit 0 with no output for any tool call; the recall pipeline is completely suppressed.
   Demonstrated by: sample-JSON stdin runs against `memory-recall.sh` and
   `memory-write-context.sh` with `.surface-disabled` in place, each exiting 0 with empty
   stdout and empty stderr.
+  *Demonstrated 2026-06-12:* fixture store with `.surface-disabled`; `memory-recall.sh` → exit=0, stdout 0 bytes, stderr 0 bytes; `memory-write-context.sh` → exit=0, stdout 0 bytes, stderr 0 bytes
 
-- [ ] **Kill-switch / infra-fault verified** — with `_memory_catalog.json` missing, the recall
+- [x] **Kill-switch / infra-fault verified** — with `_memory_catalog.json` missing, the recall
   hook exits 0, never rc 2; the system fails open rather than failing hard.
   Demonstrated by: sample-JSON stdin run against `memory-recall.sh` with the catalog
   absent, confirming exit 0 and no output (not an error condition).
+  *Demonstrated 2026-06-12:* empty fixture store (no catalog); `memory-recall.sh` → exit=0, stdout 0 bytes, stderr 0 bytes; PASS: exit 0 (never rc 2)
 
 - [ ] **Old-path removal steps enumerated** — an explicit ordered list of what gets
   removed/disabled, with a verification step per item:
