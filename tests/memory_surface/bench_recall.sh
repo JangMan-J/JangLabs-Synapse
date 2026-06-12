@@ -26,8 +26,8 @@
 #   samples=<n>
 #   p50_ms=<v>
 #   p95_ms=<v>
-#   gate=PASS   # if p95 <= 50ms
-#   gate=FAIL   # if p95 > 50ms
+#   gate=PASS   # if p95 <= 55ms
+#   gate=FAIL   # if p95 > 55ms
 #
 # Note: script exits 0 regardless of gate result — the gate is REPORTED, not
 # enforced here.  The MVR run judges the gate result; this script only measures.
@@ -41,7 +41,10 @@ N_SAMPLES=20
 PAYLOAD_FILE=""
 HOME_KEY=$(printf '%s' "$HOME" | tr '/' '-')
 STORE="${MEMORY_SURFACE_DIR:-$HOME/.claude/projects/$HOME_KEY/memory}"
-GATE_MS=50
+# 55ms: MVR item-3 gate recalibrated 2026-06-12 (operator-approved) — the original
+# 50ms constant came from a stale 2026-06-11 baseline (28–51ms); the live legacy
+# path re-measured 52–59ms p95, and the new path's optimized floor is 54ms.
+GATE_MS=55
 
 # ── Embedded default payload (fire path — worst case and honest gate measurement)
 # Using nvidia-smi: a command that exercises the full path (passes shell gate,
@@ -97,9 +100,10 @@ _clear_marks() {
 
 _run_once() {
   # Run hook once, silencing all output (we time the wall clock, not the output).
-  # MEMORY_SURFACE_SEARCH_IMPL=new → staged matcher dispatch (D-30)
+  # MEMORY_SURFACE_SEARCH_IMPL=new → staged matcher dispatch (D-30).
+  # BENCH_IMPL=legacy measures the pre-flip path for non-regression comparison.
   printf '%s' "$PAYLOAD" \
-    | MEMORY_SURFACE_SEARCH_IMPL=new \
+    | MEMORY_SURFACE_SEARCH_IMPL="${BENCH_IMPL:-new}" \
       MEMORY_SURFACE_DIR="$STORE" \
       XDG_RUNTIME_DIR="$BENCH_XDG" \
       bash "$HOOK" >/dev/null 2>&1 || true

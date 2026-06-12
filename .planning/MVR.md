@@ -22,10 +22,15 @@ completion, not before.
   Demonstrated by: probe script run output (script to be created in Phase 2 — CORE-09),
   with all 5+5 assertions passing and evidence tuples visible in the output.
 
-- [ ] **Per-tool-call recall adds ≤ 50ms p95 wall time on this box** — measured with
-  `time.perf_counter()` over a minimum of 20 samples on the live box.
-  Demonstrated by: benchmark output showing p95 ≤ 50ms (baseline for comparison: 28–51ms
-  measured 2026-06-11 on the current system).
+- [ ] **Per-tool-call recall adds ≤ 55ms p95 wall time on this box** — measured by
+  `tests/memory_surface/bench_recall.sh` (full-hook wall time, `date +%s%N` bracketing)
+  over a minimum of 20 samples on the live box.
+  Demonstrated by: benchmark output showing `gate=PASS` (p95 ≤ 55ms).
+  *Recalibrated 2026-06-12 (operator-approved):* the original ≤ 50ms constant came from a
+  stale 2026-06-11 baseline (28–51ms); Phase 2 research re-measured the live legacy path
+  at 52–59ms p95, and the new path's optimized floor is 54ms (60ms pre-optimization) —
+  faster than the system it replaces. Deeper levers (daemon, gate removal) are rejected
+  by project constraints.
 
 - [ ] **Every recall block cites its evidence tuple** — the {tag, trigger_type, matched_value}
   that fired the memory is present in every `<memory-recall>` block emitted by the new
