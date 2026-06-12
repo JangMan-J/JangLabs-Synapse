@@ -11,7 +11,7 @@
 # disables only the base floor.
 #
 # Reversible — the entry still lives in settings.global.fragment.json, so:
-#     cd ~/JangLabs/claude && ./agent-harness.py install --apply
+#     cd ~/JangLabs/synapse && ./agent-harness.py install --apply
 # re-adds it. Idempotent: a no-op (rc 0) if already unplugged.
 #
 # Usage:  fix-memory-plug.sh           # erase (default)
@@ -75,4 +75,4 @@ fi
 
 [ "$DRY" -eq 1 ] && { echo "[dry-run] no changes made."; exit 0; }
 echo "done — base memory floor unplugged. Restart Claude Code to apply."
-echo "re-add later: cd ~/JangLabs/claude && ./agent-harness.py install --apply"
+echo "re-add later: cd ~/JangLabs/synapse && ./agent-harness.py install --apply"

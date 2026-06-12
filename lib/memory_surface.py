@@ -13,7 +13,7 @@ Phase 2 will add: search / link / unlink / add-tag (token extraction, canonicali
 Self-locates the box-brain store from $HOME ('/'->'-'); NEVER hardcodes the project key — the
 pre-migration `-home-jangman` hardcode is exactly what broke the review-offer hook before.
 Frontmatter parse/generate mirror _review_game.py's nested-metadata layout EXACTLY (see
-[[fumble-restored-tool-read-ok-but-write-corrupts-on-format-drift]]) and additionally read the
+[[misfire-restored-tool-read-ok-but-write-corrupts-on-format-drift]]) and additionally read the
 block-list `tags:` form that _review_game.py's line parser silently drops.
 """
 import datetime
@@ -29,7 +29,7 @@ FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
 META_ORDER = ["node_type", "type", "tags", "originSessionId",
               "lastReviewed", "declineCount", "nextEligible"]
-FACET_HEADS = ("domain", "tool", "method-pattern")
+FACET_HEADS = ("domain", "tool", "pattern")
 
 
 # ---------------------------------------------------------------- store location
@@ -145,7 +145,7 @@ def generate_frontmatter(top, meta, body):
 
 # ---------------------------------------------------------------- taxonomy parsers
 def parse_tags_md(path):
-    """Live faceted grammar: '## domain|tool|method-pattern' headings, '- tag — gloss' (em-dash)
+    """Live faceted grammar: '## domain|tool|pattern' headings, '- tag — gloss' (em-dash)
     lines. Plus optional '## Denylist' and '## Policy overrides' sections (same line grammar)."""
     active, deny, overrides = {}, {}, set()
     if not path.exists():
@@ -963,7 +963,7 @@ def main():
             rc, msg = unlink(memdir, pos[0], pos[1], "--distinguish" in sys.argv, _arg("--reason", ""))
         elif cmd == "add-tag":
             if len(pos) < 1:
-                return _err("usage: add-tag <tag> [--description D] [--facet domain|tool|method-pattern]")
+                return _err("usage: add-tag <tag> [--description D] [--facet domain|tool|pattern]")
             rc, msg = add_tag(memdir, pos[0], _arg("--description", ""), _arg("--facet", "tool"))
         else:
             rc, msg = dismiss(_arg("--query-id", ""), _arg("--reason", ""))

@@ -37,7 +37,7 @@ TAGS_MD = """\
 - rustdesk — remote desktop
 - kitty — terminal
 - zsh — shell
-## method-pattern
+## pattern
 - verify-live — check the live artifact
 ## Denylist
 - config — too generic

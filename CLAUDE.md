@@ -1,6 +1,6 @@
-# claude — agent conventions
+# synapse — agent conventions
 
-> **Lab scope — `claude/`** · nested repo [`JangLabs-Claude`](https://github.com/JangMan-J/JangLabs-Claude). This file is the authority for work *inside this lab* and **overrides** the workspace root [`../CLAUDE.md`](../CLAUDE.md). Stay in this lab — don't reach into or edit sibling labs from here.
+> **Lab scope — `synapse/`** · nested repo [`JangLabs-Synapse`](https://github.com/JangMan-J/JangLabs-Synapse). This file is the authority for work *inside this lab* and **overrides** the workspace root [`../CLAUDE.md`](../CLAUDE.md). Stay in this lab — don't reach into or edit sibling labs from here.
 
 ## What lives here
 
@@ -8,7 +8,7 @@ Hook scripts + a CLAUDE.md fragment + a hooks-only settings fragment that togeth
 
 ## Working in this lab
 
-- **Hooks are live via symlink.** `~/.claude/hooks/<name>.sh -> claude/hooks/<name>.sh`. Edit the source here; no re-install needed for hook script changes.
+- **Hooks are live via symlink.** `~/.claude/hooks/<name>.sh -> synapse/hooks/<name>.sh`. Edit the source here; no re-install needed for hook script changes.
 - **CLAUDE.md fragment and settings fragment require re-install.** After editing either, run `./agent-harness.py install --apply` to push to `~/.claude/`.
 - **Hooks must be quiet on success.** The codex-package failure mode was walls of `[ok]/[skip]` lines feeding into Claude's context. Exit 0, no output. Reserve stderr for actionable failure.
 - **Hooks must be cheap.** Pure POSIX-ish shell + jq. No Python interpreter spawn per tool call. If a hook is tempted to grow past ~50 lines, ask whether the leverage justifies it.

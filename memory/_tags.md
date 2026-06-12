@@ -8,10 +8,10 @@ failure the memory overhaul exists to prevent). Cap ~8 tags/memory.
 Three facets:
 - **domain** — what the memory is about
 - **tool** — the key actionable handle, tagged only when it recurs
-- **method-pattern** — the epistemic lesson; only on `[Method]`/`[Fumble]` entries
+- **pattern** — the epistemic lesson; only on `[Rewire]`/`[Misfire]` entries
 
-(kind = method/fumble/reference/project is intentionally NOT a tag — it is
-already in `metadata.type` and the `[Method]`/`[Fumble]` title prefix.)
+(kind = rewire/misfire/reference/project is intentionally NOT a tag — it is
+already in `metadata.type` and the `[Rewire]`/`[Misfire]` title prefix.)
 
 ## domain
 - kde-plasma — Plasma / KWin / Klipper / KWallet desktop config
@@ -51,7 +51,7 @@ already in `metadata.type` and the `[Method]`/`[Fumble]` title prefix.)
 - pipewire — PipeWire/WirePlumber + ALSA mixer: wpctl (set-volume/set-default), pw-record, amixer hardware capture-gain controls
 - psd — profile-sync-daemon: ALL browser profiles on this box (~/.config/google-chrome, chromium, firefox, opera, vivaldi) are fuse-overlayfs mounts under /run/user/1000/psd/; backups in *-backup dirs, hourly psd-resync timer
 
-## method-pattern  (only on [Method]/[Fumble] memories)
+## pattern  (only on [Rewire]/[Misfire] memories)
 - verify-live — check the live artifact / running system, not a package name, build-file summary, or training prior
 - dont-declare-fixed-early — confirm the user's ACTUAL symptom end-to-end, not a proxy or single contributor
 - respect-user-asserted — accept the user's config facts about their own box; route around contradicting artifacts
@@ -82,14 +82,14 @@ already in `metadata.type` and the `[Method]`/`[Fumble]` title prefix.)
 
 ## Denylist
 Generic tokens rejected as memory tags — too broad to route on. To use one anyway, add it to a facet section above AND add a matching line under `## Policy overrides`.
-- bug — too generic; use the specific failure-domain tag plus a method-pattern.
+- bug — too generic; use the specific failure-domain tag plus a pattern.
 - config — too generic; use the specific domain (kde-plasma, shell, boot, …).
 - file — too generic; use a path-tag rule or a domain tag.
 - linux — too generic; use a specific component/distro tag.
 - memory — too generic; use a specific retrieval/claude-harness tag.
-- setup — too generic; use domain + method-pattern tags.
+- setup — too generic; use domain + pattern tags.
 - tool — too generic; use the specific tool tag (systemd, git, pacman, …).
-- fix — too generic; name the domain + the method-pattern.
+- fix — too generic; name the domain + the pattern.
 - issue — too generic; name the domain + the symptom.
 - note — too generic; not a routing signal.
 - problem — too generic; name the domain.

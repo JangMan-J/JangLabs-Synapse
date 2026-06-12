@@ -45,7 +45,7 @@ if [ -n "$cwd" ]; then
   # Claude Code keys by the literal path string, and the sibling memory-recall.sh locates its
   # store with realpath -sm for the same reason; resolving symlinks (-m) would collapse two
   # distinct literal keys and could WRONGLY SKIP, dropping the floor. Do not revert to -m.
-  # See fumble-unverified-agent-cli-fix.
+  # See misfire-unverified-agent-cli-fix.
   canon() { realpath -sm -- "$1" 2>/dev/null || printf '%s' "${1%/}"; }
   [ "$(canon "$root")" = "$(canon "$HOME")" ] && exit 0
 fi

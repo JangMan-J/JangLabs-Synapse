@@ -30,7 +30,7 @@ TAGS_MD = """\
 ## tool
 - git — version control
 
-## method-pattern
+## pattern
 - respect-user-asserted — take the user's stated config as truth
 
 ## Denylist

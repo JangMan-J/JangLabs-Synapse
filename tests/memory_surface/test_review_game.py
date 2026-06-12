@@ -80,7 +80,7 @@ class IntakeMode(unittest.TestCase):
 class BlockTagsPreserved(unittest.TestCase):
     """Pin: 68/131 live memories carry block-form `tags:`; the game's old line parser
     silently DROPPED them on any keep/later rewrite (the format-drift corruption
-    fumble-restored-tool-read-ok-but-write-corrupts-on-format-drift warns about)."""
+    misfire-restored-tool-read-ok-but-write-corrupts-on-format-drift warns about)."""
 
     MEM_BLOCK = """---
 name: rec-y

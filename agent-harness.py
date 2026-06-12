@@ -122,11 +122,19 @@ def ensure_exec(src: Path, apply: bool) -> None:
         os.chmod(src, os.stat(src).st_mode | 0o111)
 
 
+def _link_target(src: Path, dst: Path) -> str:
+    """Relative symlink target from dst's directory to src — relative so a clone or
+    lab rename doesn't strand the link (absolute targets break on both)."""
+    return os.path.relpath(src, dst.parent)
+
+
 def link(src: Path, dst: Path, backup_root: Path, apply: bool) -> None:
-    """Idempotently point `dst` at `src` (absolute symlink). -L also catches a broken
-    link left by a lab move, so re-running after a rename repairs it."""
-    if dst.is_symlink() and os.readlink(dst) == str(src):
-        log(apply, f"ok: {dst} -> {src} (already linked)")
+    """Idempotently point `dst` at `src` (relative symlink). -L also catches a broken
+    link left by a lab move, so re-running after a rename repairs it; a legacy
+    absolute link is replaced, converging old installs to the relative form."""
+    target = _link_target(src, dst)
+    if dst.is_symlink() and os.readlink(dst) == target:
+        log(apply, f"ok: {dst} -> {target} (already linked)")
         return
     if dst.exists() or dst.is_symlink():
         backup(dst, backup_root, apply)
@@ -135,12 +143,12 @@ def link(src: Path, dst: Path, backup_root: Path, apply: bool) -> None:
         log(apply, f"rm {dst}")
     if apply:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.symlink_to(src)
-    log(apply, f"ln -s {src} {dst}")
+        dst.symlink_to(target)
+    log(apply, f"ln -s {target} {dst}")
 
 
 def unlink_ours(src: Path, dst: Path, apply: bool) -> None:
-    if dst.is_symlink() and os.readlink(dst) == str(src):
+    if dst.is_symlink() and os.readlink(dst) in (str(src), _link_target(src, dst)):
         if apply:
             dst.unlink()
         log(apply, f"rm {dst}")
@@ -375,7 +383,7 @@ def cmd_remove(apply: bool) -> None:
 def cmd_status() -> None:
     def linkstate(src: Path, dst: Path) -> str:
         if dst.is_symlink():
-            return "linked" if os.readlink(dst) == str(src) else f"-> {os.readlink(dst)} (other)"
+            return "linked" if os.readlink(dst) in (str(src), _link_target(src, dst)) else f"-> {os.readlink(dst)} (other)"
         return "MISSING" if not dst.exists() else "present (not our symlink)"
 
     print("hooks:")

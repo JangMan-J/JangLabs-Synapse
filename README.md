@@ -1,4 +1,4 @@
-# claude
+# synapse
 
 A Claude Code harness for this box. A dozen hook scripts + a CLAUDE.md fragment + a settings.json fragment, installed globally to `~/.claude/`. Designed to be cheap per turn, narrow in scope, and easy to remove.
 
@@ -14,9 +14,9 @@ A Claude Code harness for this box. A dozen hook scripts + a CLAUDE.md fragment 
 | Config drift block | `config-drift-guard.sh` rejects settings.json edits that introduce `disableAllHooks` / `bypassPermissions` / silent `defaultMode` shifts | `PreToolUse` (Edit/Write/MultiEdit) | ~5ms |
 | Memory upkeep | `memory-review-offer.sh` surfaces a "Memory Roulette" review round (spawns the Python engine), capped at one offer per local day. Offer priority: vocabulary defects (orphan/overbroad tags) → entry rounds (intake backlog deterministic, then 30d staleness) → tag backlog on quiet days (90d cycle) | `UserPromptSubmit` | ≤1 python spawn/day, no-op otherwise |
 | Memory base layer | `memory-base-floor.sh` injects the box-brain `MEMORY.md` router (the curated always-relevant floor) into every session whose active store isn't box-brain, so the floor is present regardless of cwd — the *base* of a base+scoped memory env | `SessionStart` | 1 read+jq at session start; silent at `$HOME` |
-| Handoff discovery | `handoff-index.sh` regenerates `<workspace>/.handoff_index` — every handoff across the labs' `.claude/handoffs/`, the tracked `claude/handoffs/` archive, and `~/.claude/handoffs/`, **grouped by scope** (cross-lab / per-lab / box / stale) read from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged | `SessionStart` | 1 `find`+`grep` sweep at session start; no-op off-workspace |
+| Handoff discovery | `handoff-index.sh` regenerates `<workspace>/.handoff_index` — every handoff across the labs' `.claude/handoffs/`, the tracked `synapse/handoffs/` archive, and `~/.claude/handoffs/`, **grouped by scope** (cross-lab / per-lab / box / stale) read from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged | `SessionStart` | 1 `find`+`grep` sweep at session start; no-op off-workspace |
 
-A CLAUDE.md fragment adds: a verify-before-act rule, a memory-consultation rule, a `[Method]`/`[Fumble]` reflection-trigger rule for knowledge accretion, and an LSP-trust rule.
+A CLAUDE.md fragment adds: a verify-before-act rule, a memory-consultation rule, a `[Rewire]`/`[Misfire]` reflection-trigger rule for knowledge accretion, and an LSP-trust rule.
 
 ### Memory surfacing subsystem
 
@@ -57,7 +57,7 @@ One CLI, `agent-harness.py` (Python 3, no `jq` dependency). Dry-run by default; 
 
 Idempotent. `remove` reverses exactly what `install` adds — the symlinks, the CLAUDE.md
 fragment block, and the hook entries in `settings.json` — and touches no permissions.
-Backups land in `claude/.install-backups/<ts>/` (and `.uninstall-backups/<ts>/`). Restart
+Backups land in `synapse/.install-backups/<ts>/` (and `.uninstall-backups/<ts>/`). Restart
 Claude Code (or run `/reload-plugins`) after applying.
 
 The settings merge is per-hook-command within each `(event, matcher)`: a hook can be
@@ -98,7 +98,7 @@ Re-enable with `./agent-harness.py install --apply`. This is narrower than
 
 ## Iteration
 
-Edit the source under `claude/hooks/` directly — the symlinks point here, so changes are live. Re-run `./agent-harness.py install --apply` only when changing the CLAUDE.md fragment or settings.json shape.
+Edit the source under `synapse/hooks/` directly — the symlinks point here, so changes are live. Re-run `./agent-harness.py install --apply` only when changing the CLAUDE.md fragment or settings.json shape.
 
 ## Known limitations
 
