@@ -53,6 +53,19 @@ fi
 # ── Infra exemptions FIRST (D-14: must precede widened detection) ────────────
 base=${abs##*/}
 case "$base" in *.md) ;; *) exit 0 ;; esac             # only .md files
+# Taxonomy/grammar gating applies ONLY to the box store's own files (CR-02): a file
+# that merely SHARES one of these basenames anywhere else on disk (another repo's
+# docs, a different project's own taxonomy) is not ours to gate — validating the
+# box store against it both false-denies unrelated files and checks the wrong store.
+# (The store's taxonomy files are symlinks into the lab; the lexical realpath -sm
+# canonicalization above keeps the $STORE/* match working for store-addressed writes.)
+case "$base" in
+  _tags.md|_tag_links.md|_grammar.md)
+    case "$abs" in
+      "$STORE"/*) ;;                                   # in-store taxonomy -> gate below
+      *) exit 0 ;;                                     # out-of-store same-named file -> not ours
+    esac ;;
+esac
 case "$base" in
   _tags.md|_tag_links.md) TYPE=taxonomy ;;
   _grammar.md)             TYPE=grammar ;;

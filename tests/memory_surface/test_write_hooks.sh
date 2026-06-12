@@ -249,6 +249,31 @@ rc_is "GUARD _tags.md exempt -> rc=0 (D-14)" 0 "$got_rc"
 out=$(mkwrite "$FIX/MEMORY.md" "# Memory index" | "$GUARD" 2>&1); got_rc=$?
 rc_is "GUARD MEMORY.md exempt -> rc=0 (D-14)" 0 "$got_rc"
 
+echo "── GUARD: taxonomy gate is path-scoped (CR-02) ──"
+# A file that merely SHARES a taxonomy basename outside the store is NOT gated —
+# even when the box-store taxonomy is currently invalid (the exact state where the
+# unscoped gate used to false-deny unrelated files).
+cp "$FIX/_tags.md" "$FIX/_tags.md.bak"
+cat > "$FIX/_tags.md" << 'BROKEN_TAGS_EOF'
+# tags
+## domain
+- config — broken on purpose
+## Denylist
+- config — too generic
+## Policy overrides
+BROKEN_TAGS_EOF
+OUTSIDE=$(mktemp -d)
+out=$(mkwrite "$OUTSIDE/_tags.md" "# unrelated tags file" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD out-of-store _tags.md not gated -> rc=0 (CR-02)" 0 "$got_rc"
+assert_empty "GUARD out-of-store _tags.md: silent (CR-02)" "$out"
+out=$(mkwrite "$OUTSIDE/_grammar.md" "# unrelated grammar file" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD out-of-store _grammar.md not gated -> rc=0 (CR-02)" 0 "$got_rc"
+# The IN-store taxonomy edit IS still gated while the on-disk taxonomy is broken
+stderr_out=$(mkedit "$FIX/_tags.md" "tweak" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD in-store _tags.md edit still gated -> rc=2 (CR-02)" 2 "$got_rc"
+mv "$FIX/_tags.md.bak" "$FIX/_tags.md"
+rm -rf "$OUTSIDE"
+
 echo "── GUARD: Edit fail-open ──"
 # Edit event (no .content) on a box memory → exit 0
 out=$(mkedit "$FIX/new-memory.md" "updated text" | "$GUARD" 2>&1); got_rc=$?
