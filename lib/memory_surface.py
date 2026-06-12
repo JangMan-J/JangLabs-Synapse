@@ -107,8 +107,9 @@ def _parse_flow_tags(value):
 
 def parse_frontmatter(text):
     """Return (top, meta, body). `meta['tags']` is a list (flow OR block form). Other meta
-    values are raw strings. Top-level keeps name/description. Mirrors _review_game.py, plus
-    block-list tag reading."""
+    values are raw strings. Top-level keeps name/description. Layout pinned by
+    generate_frontmatter() and its round-trip tests (formerly mirrored _review_game.py,
+    deleted in Phase 4); additionally reads block-list tags."""
     m = FRONTMATTER_RE.match(text)
     if not m:
         return {}, {}, text
@@ -197,8 +198,8 @@ def parse_frontmatter(text):
 
 
 def generate_frontmatter(top, meta, body):
-    """Re-emit preserving nested metadata + field order; tags as a flow list (canonical,
-    matching _review_game.py). Unknown top/meta keys preserved in original order."""
+    """Re-emit preserving nested metadata + field order; tags as a flow list (the pinned
+    canonical form). Unknown top/meta keys preserved in original order."""
     out = []
     for k in ("name", "description"):
         if k in top:
