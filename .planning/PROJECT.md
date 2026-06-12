@@ -84,6 +84,7 @@ maintains metadata.**
 - ✓ Narrow break-glass disable for the base floor (`fix-memory-plug.sh`) — existing
 - ✓ Tags-as-triggers grammar artifact + write-time trigger derivation, dedup, and store placement — Validated in Phase 1: Trigger Grammar & Write-Time Intelligence (2026-06-12)
 - ✓ Rebuildable trigger-routing index (`triggerIndex` in catalog), evidence-routed recall with inline `←` tuples, ≤55ms p95 (operator-recalibrated), contract tests + 5+5 live probes, legacy path pruned at the MVR-gated flip (commit 392f351) — Validated in Phase 2: Routing Index & Live Recall Cutover (2026-06-12)
+- ✓ Telemetry-driven self-curation: fire/read/session telemetry, evidence-guarded maintenance pass (≥10 session-days or ≥30d before mutations), Roulette retired after shadow validation, router seats machine-governed with probe-proof + pending-change blocks — Validated in Phase 3: Telemetry & Self-Curation (2026-06-12)
 
 ### Active
 
@@ -94,8 +95,8 @@ maintains metadata.**
 - [x] Write-time intelligence pipeline: trigger derivation at memory-save time (Phase 1)
 - [x] Read path as precomputed-index lookup, near-free per tool call (Phase 2)
 - [x] Index as build artifact: full rebuild from store contents at any time (Phase 2)
-- [ ] Telemetry-driven self-curation (promotion/demotion/decay); zero human curation
-- [ ] Memory Roulette retired as human ritual (automated maintenance pass replaces it)
+- [x] Telemetry-driven self-curation (promotion/demotion/decay); zero human curation (Phase 3 — evidence-guarded maintenance pass live on SessionStart cadence)
+- [x] Memory Roulette retired as human ritual (automated maintenance pass replaces it) (Phase 3 — D-45 shadow-validated, offer hook deregistered)
 - [ ] Repo reorganized into clear subsystem boundaries (base harness / memory system / install tooling)
 - [ ] Prune and consolidate: every component re-justified against the working implementation
 - [ ] Docs/reality realignment: README, CLAUDE.md, fragment, findings describe what actually exists
@@ -187,4 +188,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — Phase 2 complete (routing index live, legacy path pruned)*
+*Last updated: 2026-06-12 — Phase 3 complete (self-curation live; Roulette retired)*
