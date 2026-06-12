@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # memory-write-guard.sh — PreToolUse, matcher=Edit|Write|MultiEdit.
 #
-# The only memory blocker. Validates tags before a memory write lands:
-#   - Write to a memory (.content present)  -> check-write on full content;
-#                                              DENY (exit 2) on bad tags. FAIL CLOSED.
+# The only memory blocker. Validates tags/triggers/placement before a memory write lands:
+#   - Write to a memory (.content present)  -> check-write --target on full content;
+#                                              DENY (exit 2) on bad triggers/placement.
+#                                              FAIL CLOSED for trigger/placement errors.
 #   - Edit/MultiEdit to a memory            -> cannot reconstruct the full file from
 #                                              new_string; FAIL OPEN (allow).
 #   - Write/Edit to taxonomy (_tags.md /    -> validate; DENY on error. FAIL CLOSED.
-#     _tag_links.md)                           BUT allow bootstrap (file not yet on disk).
+#     _tag_links.md / _grammar.md)             BUT allow bootstrap (file not yet on disk).
+#
+# Detection widened (D-14): box store + any Claude project store + repo memory/ dirs.
+# Placement gate (D-15): box-placement tags at non-box target -> deny with correct store path.
+# --target enforcement (D-09): check-write now receives the canonical target path so the engine
+# can apply placement and dedup correctly for non-box writes.
 #
 # DENY = the on-box-proven exit-2 + stderr form (matches config-drift-guard). Quiet on allow.
 # Note: check-write emits its deny reason on STDOUT, so we capture it and re-emit to stderr.
@@ -43,14 +49,37 @@ if command -v realpath >/dev/null 2>&1; then
 fi
 
 [ -e "$STORE/.surface-disabled" ] && exit 0            # kill-switch
-case "$abs" in "$STORE"/*) ;; *) exit 0 ;; esac        # not a store write (..-safe)
+
+# ── Infra exemptions FIRST (D-14: must precede widened detection) ────────────
 base=${abs##*/}
 case "$base" in *.md) ;; *) exit 0 ;; esac             # only .md files
 case "$base" in
   _tags.md|_tag_links.md) TYPE=taxonomy ;;
+  _grammar.md)             TYPE=grammar ;;
   MEMORY.md|_*) exit 0 ;;                              # index / generated -> not gated
   *) TYPE=memory ;;
 esac
+
+# ── Widened detection (D-14) ─────────────────────────────────────────────────
+# For non-taxonomy/grammar types: only memory paths in watched locations are gated.
+# Box store is always gated. Also gate any Claude project store and repo memory/ dirs.
+if [ "$TYPE" = memory ]; then
+  IS_MEMORY=0
+  case "$abs" in
+    "$STORE"/*) IS_MEMORY=1 ;;                         # box store
+  esac
+  if [ "$IS_MEMORY" -eq 0 ]; then
+    case "$abs" in
+      */.claude/projects/*/memory/*.md) IS_MEMORY=1 ;; # any project store
+    esac
+  fi
+  if [ "$IS_MEMORY" -eq 0 ]; then
+    case "$abs" in
+      */memory/*.md) IS_MEMORY=1 ;;                    # repo memory/ dir (dark-memory class)
+    esac
+  fi
+  [ "$IS_MEMORY" -eq 1 ] || exit 0                    # not a memory write -> silent exit
+fi
 
 # memory_surface.py self-locates the store from $HOME and returns rc 0 if the store is missing
 # (fail open). The engine is readability-checked above, and we additionally require a non-empty
@@ -69,11 +98,24 @@ if [ "$TYPE" = taxonomy ]; then
   exit 0
 fi
 
+if [ "$TYPE" = grammar ]; then
+  # Bootstrap: creating the grammar file from scratch -> allow.
+  [ -e "$abs" ] || exit 0
+  # validate-grammar inspects the CURRENT on-disk grammar.
+  errs=$(python3 "$ENGINE" validate-grammar 2>&1); rc=$?
+  if [ "$rc" -eq 2 ] && [ -n "$errs" ]; then
+    { echo "memory-write-guard: refused $base edit — grammar invalid:"; printf '%s\n' "$errs"; } >&2
+    exit 2
+  fi
+  exit 0
+fi
+
 # TYPE=memory: only a full Write (.content) can be validated; Edit/MultiEdit fail open.
 content=$(printf '%s' "$input" | jq -r '.tool_input.content // empty' 2>/dev/null || true)
 [ -n "$content" ] || exit 0                            # Edit/MultiEdit (no .content) -> fail open
 
-reason=$(printf '%s' "$content" | python3 "$ENGINE" check-write 2>/dev/null); rc=$?
+# Pass --target so the engine can apply placement gate (D-15) and classify correctly.
+reason=$(printf '%s' "$content" | python3 "$ENGINE" check-write --target "$abs" 2>/dev/null); rc=$?
 if [ "$rc" -eq 2 ] && [ -n "$reason" ]; then
   echo "memory-write-guard: refused write to $base — ${reason}" >&2
   exit 2

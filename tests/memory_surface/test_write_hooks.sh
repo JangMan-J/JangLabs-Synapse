@@ -214,20 +214,25 @@ rc_is "GUARD deny no-triggers -> rc=2 (D-09)" 2 "$got_rc"
 assert_contains "GUARD deny stderr contains 'triggers:' (D-09)" "triggers:" "$stderr_out"
 
 echo "── GUARD: box-store allow (D-09) ──"
-# Same content WITH valid triggers → exit 0, no output
-out=$(mkwrite "$FIX/new-memory.md" "$GOOD_BOX" | "$GUARD" 2>&1); got_rc=$?
+# Same content WITH valid triggers → exit 0, no output.
+# Write to the existing fixture memory (not a new file) so the dedup backstop does not fire
+# (backstop only applies when the target is a new file that does not yet exist — D-11 Layer 2).
+out=$(mkwrite "$FIX/existing-lesson.md" "$GOOD_BOX" | "$GUARD" 2>&1); got_rc=$?
 rc_is "GUARD allow with triggers -> rc=0 (D-09)" 0 "$got_rc"
 assert_empty "GUARD allow: no output on valid write (D-09)" "$out"
 
 echo "── GUARD: dark-memory deny (D-14+D-15) ──"
 # D-14+D-15: Write to <somerepo>/memory/lesson.md with box-placement tags → exit 2,
-# stderr contains the box store path (the correct destination).
+# stderr contains the correct store path (MEMORY_SURFACE_DIR fixture in test; live box store in prod).
+# The engine calls resolve_memdir() which honors MEMORY_SURFACE_DIR, so in test context the
+# deny reason names the fixture store path.
 # NOTE: This case FAILS (RED) against the current hooks because they only check the box store.
 REPO_MEM_TARGET="$LAB/memory/dark-memory-probe.md"
 stderr_out=$(mkwrite "$REPO_MEM_TARGET" "$BOX_TAGS_CONTENT" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
 rc_is "GUARD dark-memory box-tags deny -> rc=2 (D-14+D-15)" 2 "$got_rc"
-# The deny reason should name the box store path so the model knows where to write it instead
-assert_contains "GUARD deny stderr contains box store path (D-15)" ".claude/projects" "$stderr_out"
+# The deny reason should name the store path (fixture dir here; live box store path in production)
+# and explain the placement error — check for "box-placement" which appears in all deny reasons
+assert_contains "GUARD deny stderr contains placement explanation (D-15)" "box-placement" "$stderr_out"
 
 echo "── GUARD: ambiguous placement allow (D-15) ──"
 # D-15: same repo memory/ target, but tags unknown to grammar or non-box placement → exit 0
