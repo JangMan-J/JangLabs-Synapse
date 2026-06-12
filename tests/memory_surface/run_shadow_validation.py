@@ -57,7 +57,15 @@ def _run_shadow(store):
     if result.returncode != 0:
         print(f"# WARNING: engine exited {result.returncode}: {result.stderr.strip()}",
               file=sys.stderr)
-    return json.loads(result.stdout)
+    # WR-09: the engine exits 0 WITHOUT printing anything when the store dir does
+    # not exist (fail-open main()). json.loads("") would raise and break the
+    # "exits 0 always" contract the gate=-line parsers depend on.
+    try:
+        return json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        print("# WARNING: engine produced no/invalid JSON; treating as empty shadow result",
+              file=sys.stderr)
+        return {}
 
 
 def _build_baseline(store):

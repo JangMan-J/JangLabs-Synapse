@@ -1561,6 +1561,16 @@ class ShadowValidation(unittest.TestCase):
         self.assertEqual(found, required,
                          f"must have all four key=value lines; found: {found}")
 
+    # ── WR-09: missing store → engine prints nothing → runner still exits 0 ──
+    def test_runner_exits_zero_on_missing_store(self):
+        """--store pointing at a nonexistent dir: the engine exits 0 WITHOUT
+        printing JSON; the runner must still exit 0 with a gate= verdict line
+        (WR-09 — the 'exits 0 always' contract that gate-parsers depend on)."""
+        missing = Path(tempfile.mkdtemp()) / "no-such-store"
+        rc, out, err = self._run_runner(store=missing)
+        self.assertEqual(rc, 0, f"runner must exit 0 on missing store; err={err!r}")
+        self.assertIn("gate=", out, "verdict gate= line must still be printed")
+
     # ── Runner is read-only: no file mtime changes ───────────────────────────
     def test_runner_is_read_only(self):
         """Running the shadow validation runner must not modify any store file mtime."""
