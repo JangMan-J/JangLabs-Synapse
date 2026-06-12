@@ -33,11 +33,16 @@ command -v realpath >/dev/null 2>&1 && STORE=$(realpath -sm -- "$STORE" 2>/dev/n
 # ── Pre-Python: extract all four input fields in ONE jq spawn (T-02-13 / CORE-04).
 # Unit separator (0x1f) is used as delimiter — safe for all field values (paths,
 # commands, tool names never contain 0x1f). Fail-open: jq error → all vars empty.
+# `read` stops at the first newline, and tool_input.command is routinely multiline —
+# so newlines in the command are flattened to spaces INSIDE the same jq spawn. The
+# cheap gate below only does first-word + substring scans, so the flattened string
+# gates identically to the old full multiline string (D-28 semantics preserved).
 _US=$(printf '\x1f')
 IFS="$_US" read -r tool path cwd cmd <<< "$(
   printf '%s' "$input" | jq -r \
     --arg sep "$_US" \
-    '[.tool_name // "", .tool_input.file_path // .tool_input.path // "", .cwd // "", .tool_input.command // ""] | join($sep)' \
+    '[.tool_name // "", .tool_input.file_path // .tool_input.path // "", .cwd // "",
+      (.tool_input.command // "" | gsub("\n"; " "))] | join($sep)' \
     2>/dev/null || true
 )"
 
