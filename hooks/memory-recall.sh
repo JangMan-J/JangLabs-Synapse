@@ -36,10 +36,9 @@ command -v realpath >/dev/null 2>&1 && STORE=$(realpath -sm -- "$STORE" 2>/dev/n
 # `read` stops at the first newline, and tool_input.command is routinely multiline —
 # so newlines in the command are flattened INSIDE the same jq spawn. They flatten to
 # "; " (not space): \n is a shell command separator exactly like ';', so a multiline
-# command then gates identically to its semicolon-compound equivalent — 'ls\nfoo'
-# becomes 'ls; foo', whose first word 'ls;' is not in the generic list, so it reaches
-# the engine just as 'ls; foo' always did (D-28 semantics; never gates out a payload
-# the engine could fire on).
+# command gates identically to its semicolon-compound equivalent under the
+# segment-wise generic gate below (WR-08), which judges every segment the engine
+# tokenizes (D-28 semantics; never gates out a payload the engine could fire on).
 _US=$(printf '\x1f')
 IFS="$_US" read -r tool path cwd cmd <<< "$(
   printf '%s' "$input" | jq -r \
@@ -60,18 +59,30 @@ if [ -n "$path" ]; then
   case "$abs" in "$STORE"/*) exit 0 ;; esac
 fi
 
-# Cheap-gate: a Bash command whose leading word is generic AND that carries no path /
-# package / unit signal cannot match anything — skip it without spawning Python.
-if [ "$tool" = "Bash" ]; then
-  first=${cmd%% *}; first=${first##*/}
-  case " ls pwd cd cat sed awk grep rg find head tail wc jq echo true false : " in
-    *" $first "*)
-      case "$cmd" in
-        *[/~]*|*pacman*|*paru*|*yay*|*pip*|*npm*|*pnpm*|*yarn*|*cargo*|*systemctl*) ;;            # signal -> proceed
-        *.service*|*.socket*|*.timer*|*.target*|*.mount*|*.path*|*.scope*) ;;                     # systemd unit -> proceed
-        *) exit 0 ;;                                     # pure-generic, no signal -> skip
-      esac ;;
-  esac
+# Cheap-gate: a Bash command is skippable only when EVERY segment's leading word is
+# generic AND the whole command carries no path / package / unit signal. WR-08: the
+# engine tokenizes every ;/&&/||/|/\n segment, so judging only the first segment
+# would silence payloads the engine fires on (e.g. 'ls -la; nvidia-smi').
+if [ "$tool" = "Bash" ] && [ -n "$cmd" ]; then
+  _segs=${cmd//&&/;}; _segs=${_segs//"||"/;}; _segs=${_segs//"|"/;}
+  IFS=';' read -ra _segarr <<< "$_segs"
+  _allgen=1
+  for _seg in "${_segarr[@]}"; do
+    _seg=${_seg#"${_seg%%[![:space:]]*}"}              # ltrim
+    [ -n "$_seg" ] || continue
+    _first=${_seg%% *}; _first=${_first##*/}
+    case " ls pwd cd cat sed awk grep rg find head tail wc jq echo true false : " in
+      *" $_first "*) ;;
+      *) _allgen=0; break ;;
+    esac
+  done
+  if [ "$_allgen" = 1 ]; then
+    case "$cmd" in
+      *[/~]*|*pacman*|*paru*|*yay*|*pip*|*npm*|*pnpm*|*yarn*|*cargo*|*systemctl*) ;;            # signal -> proceed
+      *.service*|*.socket*|*.timer*|*.target*|*.mount*|*.path*|*.scope*) ;;                     # systemd unit -> proceed
+      *) exit 0 ;;                                     # all-generic, no signal -> skip
+    esac
+  fi
 fi
 
 # Run the search engine on the original event (fail open on any error).
