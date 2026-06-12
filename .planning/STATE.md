@@ -99,10 +99,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1] Dark-memory write-path placement bug is live and unfixed — concurrent sessions still mis-route writes into the lab memory/ dir; Phase 1 (ORG-04) owns the fix
-- [Phase 2] Read-path budget is hard: ≤ 50ms p95 added wall time (measured baseline 28-51ms) — threshold calibration flagged for in-phase research
 - [Phase 3] Read-signal proxy ("session read the file") needs validation against action-changed; flagged for in-phase research
 - [Project] Budgeted parallelism: no serious parallel run without a declared dispatch checkpoint (N agents × model)
+
+*(Resolved 2026-06-12: Phase 1 dark-memory placement fixed — ORG-04 complete. Phase 2 p95 budget closed — gate recalibrated to ≤55ms operator-approved, new path measures 48–54ms.)*
 
 ## Deferred Items
 
