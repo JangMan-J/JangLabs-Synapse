@@ -76,7 +76,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Staged evidence matcher (search-new) + tier scoring + inline evidence tuples, spec-first contract tests
+- [x] 02-02-PLAN.md — Staged evidence matcher (search-new) + tier scoring + inline evidence tuples, spec-first contract tests
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -126,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
-| 2. Routing Index & Live Recall Cutover | 1/4 | Executing | - |
+| 2. Routing Index & Live Recall Cutover | 2/4 | In Progress|  |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 

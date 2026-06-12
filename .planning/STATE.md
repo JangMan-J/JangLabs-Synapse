@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-06-12T09:45:00.000Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-06-12T09:52:38.476Z"
 last_activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
-  percent: 31
+  completed_plans: 6
+  percent: 25
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 02 (routing-index-live-recall-cutover) — EXECUTING
-Plan: 2 of 4
-Status: Executing Phase 02
+Plan: 3 of 4
+Status: Ready to execute
 Last activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
 
 Progress: [██░░░░░░░░] 31%
@@ -56,6 +56,7 @@ Progress: [██░░░░░░░░] 31%
 | Phase 01 P03 | 7 minutes | 3 tasks | 2 files |
 | Phase 01 P04 | 25 minutes | 3 tasks | 3 files |
 | Phase 02 P01 | 10 minutes | 3 tasks | 3 files |
+| Phase 02 P02 | 12 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [02-01] Mechanical fallback (D-29b) implemented as index-side entries only (byMemoryId), not frontmatter writes — keeps store-is-source/index-is-binary principle clean
 - [02-01] _review_game.py cmd_keep/cmd_later/cmd_refresh intentionally do NOT call rebuild() — they touch only review metadata, not routing inputs; CORE-08 satisfied without it
 - [02-01] Open Question 2 resolved: bare comma-tags memory parses with 2 tags via _parse_flow_tags() and routes correctly; no fix needed
+- [Phase ?]: 02-02: Token-routing table pinned spec-first: command/unit→strong; arg→strong/medium/weak; tag→strong/weak; package/path→weak; full paths via byPath→strong (D-25/D-27)
+- [Phase ?]: [02-02] TIER_WEIGHTS not in DEFAULT_CONFIG — merged inside search_new only; keeps existing config schema untouched
+- [Phase ?]: [02-02] Staged dispatch: search-new + MEMORY_SURFACE_SEARCH_IMPL=new; both deleted at Plan 02-04 flip (D-30)
 
 ### Pending Todos
 
@@ -103,6 +107,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T09:45:00.000Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-06-12T09:52:38.473Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
