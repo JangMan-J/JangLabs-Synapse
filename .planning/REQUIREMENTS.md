@@ -9,7 +9,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Routing Core
 
-- [ ] **CORE-01**: A tag is defined by its evidence patterns in one unified artifact — vocabulary, routing rules, and tag links collapse into a single source under one grammar covering both tag-level evidence (shared domain patterns) and per-memory triggers; a tag without observable triggers cannot exist (schema-enforced)
+- [x] **CORE-01**: A tag is defined by its evidence patterns in one unified artifact — vocabulary, routing rules, and tag links collapse into a single source under one grammar covering both tag-level evidence (shared domain patterns) and per-memory triggers; a tag without observable triggers cannot exist (schema-enforced)
 - [x] **CORE-02**: Saving a memory derives its trigger patterns at write time, while the authoring model is in-context — triggers are embedded at save, not assigned later
 - [x] **CORE-03**: The routing index is a build artifact compiled from the store — one command rebuilds it fully at any time; it is never hand-edited and never needs migration
 - [x] **CORE-04**: Per-tool-call recall is a precomputed lookup routed on behavioral evidence (paths touched, commands run, symbols named) parsed from tool_input — no LLM call, no embeddings; added wall time ≤ 55ms p95 per tool call on this box (recalibrated 2026-06-12, operator-approved, commit d91b28b — original ≤50ms came from a stale 28–51ms baseline; live legacy path re-measured 52–59ms, new path measures p95 48–54ms)
@@ -21,7 +21,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Migration
 
-- [ ] **MIG-01**: A Minimum Viable Replacement gate is defined before core implementation begins — the explicit checklist of what must demonstrably work before the old routing path is removed
+- [x] **MIG-01**: A Minimum Viable Replacement gate is defined before core implementation begins — the explicit checklist of what must demonstrably work before the old routing path is removed
 - [x] **MIG-02**: Every existing store memory (~140) is routable under the new system at cutover — via bulk trigger derivation or a defined fallback — with no window where old memories are unreachable
 
 ### Self-Curation
@@ -71,11 +71,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 1 | In Progress (01-01: grammar artifact + parser + schema validation delivered) |
+| CORE-01 | Phase 1 | Complete (verified retroactively 2026-06-12 — 01-VERIFICATION.md) |
 | CORE-02 | Phase 1 | Complete |
 | CORE-07 | Phase 1 | Complete |
 | ORG-04 | Phase 1 | Complete |
-| MIG-01 | Phase 1 | In Progress (01-01: gate checklist committed as first Phase-1 artifact) |
+| MIG-01 | Phase 1 | Complete (gate defined 01-01 before core code — git-timestamped; CLOSED at the phase-2 flip) |
 | CORE-03 | Phase 2 | Complete |
 | CORE-04 | Phase 2 | Complete |
 | CORE-05 | Phase 2 | Complete |
@@ -89,7 +89,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CUR-04 | Phase 3 | Complete |
 | CUR-05 | Phase 3 | Complete (03-04) |
 | ORG-01 | Phase 4 | Complete (04-01) |
-| ORG-02 | Phase 4 | Pending (04-03) |
+| ORG-02 | Phase 4 | Complete (04-02, 04-03) |
 | ORG-03 | Phase 4 | Complete (04-01) |
 
 **Coverage:**
