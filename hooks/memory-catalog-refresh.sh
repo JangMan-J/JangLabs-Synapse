@@ -64,7 +64,7 @@ case "$abs" in
   "$STORE"/*) IS_STORE_FILE=1 ;;
   *)
     case "$base_tmp" in
-      _tags.md|_tag_links.md|_grammar.md)
+      _tags.md|_grammar.md)
         real_store_f=$(readlink -f -- "$STORE/$base_tmp" 2>/dev/null || true)
         real_abs=$(readlink -f -- "$abs" 2>/dev/null || printf '%s' "$abs")
         [ -n "$real_store_f" ] && [ "$real_abs" = "$real_store_f" ] && IS_STORE_FILE=1 ;;
@@ -101,7 +101,7 @@ fi
 
 base=${abs##*/}
 case "$base" in
-  _tags.md|_tag_links.md) TYPE=taxonomy ;;
+  _tags.md) TYPE=taxonomy ;;
   _grammar.md) TYPE=grammar ;;                          # CORE-08 gap 1: grammar writes rebuild
   MEMORY.md|_*) exit 0 ;;                              # index / generated -> not gated
   *) TYPE=memory ;;

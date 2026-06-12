@@ -4,17 +4,15 @@
 The SINGLE gated Python entry point for the memory hooks (the harness forbids per-tool-call
 python; hooks cheap-gate in shell, then call this once). Phase 1 subcommands implemented here:
 
-    validate      check taxonomy (_tags.md + _tag_links.md) integrity
+    validate      check taxonomy (_tags.md) integrity
     rebuild       regenerate _memory_catalog.json atomically from frontmatter (never bodies)
     check-write   validate a PROPOSED memory file's frontmatter/tags before it lands
 
-Phase 2 will add: search / link / unlink / add-tag (token extraction, canonicalization, ranking).
-
 Self-locates the box-brain store from $HOME ('/'->'-'); NEVER hardcodes the project key — the
 pre-migration `-home-jangman` hardcode is exactly what broke the review-offer hook before.
-Frontmatter parse/generate mirror _review_game.py's nested-metadata layout EXACTLY (see
-[[misfire-restored-tool-read-ok-but-write-corrupts-on-format-drift]]) and additionally read the
-block-list `tags:` form that _review_game.py's line parser silently drops.
+Frontmatter parse/generate was formerly mirrored after _review_game.py's nested-metadata layout
+(see [[misfire-restored-tool-read-ok-but-write-corrupts-on-format-drift]]); that file was deleted
+in Phase 4 (04-01). The layout is now pinned by generate_frontmatter() and its tests.
 """
 import datetime
 import fnmatch
@@ -271,37 +269,6 @@ def parse_tags_md(path):
     return {"active": active, "deny": deny, "overrides": overrides}
 
 
-def parse_tag_links(path):
-    """P6 backtick grammar: ## Synonyms ('- `a` = `b` - reason'), ## Distinctions
-    ('- `a` != `b` - reason'), ## Path Tags ('- `pat` -> `t1`, `t2` [@ strong|weak] [; reason'])."""
-    syn, dist, paths = [], [], []
-    if not path.exists():
-        return {"synonyms": syn, "distinctions": dist, "path_tags": paths}
-    section = None
-    for raw in path.read_text().split("\n"):
-        h = raw.strip()
-        if h.startswith("## "):
-            section = {"synonyms": "syn", "distinctions": "dist",
-                       "path tags": "path"}.get(h[3:].strip().lower())
-            continue
-        if not raw.startswith("- "):
-            continue
-        if section == "syn":
-            m = re.match(r"^- `([a-z0-9-]+)` = `([a-z0-9-]+)`(?:\s+-\s+(.*))?$", raw)
-            if m:
-                syn.append((m.group(1), m.group(2), m.group(3) or ""))
-        elif section == "dist":
-            m = re.match(r"^- `([a-z0-9-]+)` != `([a-z0-9-]+)`(?:\s+-\s+(.*))?$", raw)
-            if m:
-                dist.append((m.group(1), m.group(2), m.group(3) or ""))
-        elif section == "path":
-            m = re.match(r"^- `([^`]+)`\s*->\s*(.+?)(?:\s+@\s+(strong|weak))?(?:\s+;\s+(.*))?$", raw)
-            if m:
-                tags = re.findall(r"`([a-z0-9-]+)`", m.group(2))
-                paths.append((m.group(1), tags, m.group(3) or "strong", m.group(4) or ""))
-    return {"synonyms": syn, "distinctions": dist, "path_tags": paths}
-
-
 def parse_grammar_md(path):
     """Parse _grammar.md into {tag: {facet, gloss, placement, commands, paths, args,
     synonyms, related, _unknown_fields}}.
@@ -441,40 +408,14 @@ def validate_grammar(memdir):
     return errors
 
 
-def synonym_map(synonyms):
-    """alias -> canonical (left side is canonical)."""
-    return {alias: canon for (canon, alias, _) in synonyms}
-
-
 # ---------------------------------------------------------------- validation
 def validate(memdir):
     tags = parse_tags_md(memdir / "_tags.md")
-    links = parse_tag_links(memdir / "_tag_links.md")
     active = set(tags["active"])
     errors = []
     for t in sorted(active):
         if t in tags["deny"] and t not in tags["overrides"]:
             errors.append(f"active tag '{t}' is denylisted without a '## Policy overrides' entry")
-    syn_pairs = set()
-    alias_to_canon = {}
-    for (c, a, _) in links["synonyms"]:
-        if c not in active:                            # left=canonical must be a real tag;
-            errors.append(f"synonym canonical '{c}' is not an active tag")
-        if a in alias_to_canon and alias_to_canon[a] != c:   # §18: one synonym set per tag
-            errors.append(f"tag '{a}' is an alias in multiple synonym sets "
-                          f"('{alias_to_canon[a]}' and '{c}')")
-        alias_to_canon[a] = c
-        syn_pairs.add(frozenset((c, a)))               # right=alias is a free query token
-    for (a, b, _) in links["distinctions"]:
-        for t in (a, b):
-            if t not in active:
-                errors.append(f"distinction references unknown tag '{t}'")
-        if frozenset((a, b)) in syn_pairs:
-            errors.append(f"'{a}'/'{b}' are both a synonym and a distinction")
-    for (pat, ptags, _, _) in links["path_tags"]:
-        for t in ptags:
-            if t not in active:
-                errors.append(f"path-tag `{pat}` references unknown tag '{t}'")
     return errors
 
 
@@ -1249,9 +1190,9 @@ def seats(memdir):
 def rebuild(memdir):
     tags = parse_tags_md(memdir / "_tags.md")
     active = set(tags["active"])
-    # Synonym map now derived from grammar (same vocabulary as recallVocab.aliases — principle 6).
-    # _tag_links.md synonyms are legacy; parse_tag_links() is still used by write-path (validate,
-    # link, unlink, add_tag) and retires with those files in a later phase.
+    # Synonym map derived from grammar (same vocabulary as recallVocab.aliases — principle 6).
+    # The legacy synonym graph is inert store data; the write path was removed in Phase 4 (D-50).
+    # Synonyms come solely from _grammar.md.
     grammar_pre = parse_grammar_md(memdir / "_grammar.md")
     smap = {syn: tag for tag, spec in grammar_pre.items()
             for syn in (spec.get("synonyms", []) or []) if syn}
@@ -2003,7 +1944,7 @@ def search(memdir, event, now=None):
     """Trigger-index matcher (Plan 02-02/02-04, D-30 flip completed).
 
     Reads ONLY the precomputed catalog (triggerIndex + recallVocab + tagToMemoryIds).
-    NEVER calls parse_tags_md / parse_tag_links — those are write-path only after the flip.
+    NEVER reads _tags.md or any store taxonomy file — catalog only.
     NEVER calls rebuild() — missing/corrupt catalog returns _empty_response() (fail-closed).
     """
     # ---- Guard prologue (copy verbatim from legacy search, D-28) ----
@@ -2017,7 +1958,7 @@ def search(memdir, event, now=None):
     if catalog is None:                  # missing/corrupt catalog -> fail closed (never rebuild)
         return _empty_response(rmode)
 
-    # ---- Read routing tables from catalog (never from _tags.md/_tag_links.md) ----
+    # ---- Read routing tables from catalog (never from store taxonomy files) ----
     vocab = catalog.get("recallVocab", {})
     active = set(vocab.get("active", []))
     aliases = vocab.get("aliases", {})
@@ -2226,12 +2167,6 @@ def _sanitize(s):
     return re.sub(r"[\r\n`]+", " ", (s or "")).strip()
 
 
-def _drop_pair_lines(text, a, b, op):
-    """Remove any '- `x` <op> `y`' line whose backtick pair equals {a, b} (op is '=' or '!=')."""
-    pat = re.compile(r"^- `([a-z0-9-]+)` " + re.escape(op) + r" `([a-z0-9-]+)`")
-    return "\n".join(ln for ln in text.split("\n")
-                     if not ((m := pat.match(ln)) and {m.group(1), m.group(2)} == {a, b}))
-
 
 def _insert_under_heading(text, heading, line):
     """Insert `line` as the last entry under '## {heading}', creating the heading at EOF if
@@ -2294,36 +2229,6 @@ def add_tag(memdir, tag, description="", facet="tool"):
     return rc, msg or f"added tag '{tag}' under '{facet}'"
 
 
-def link(memdir, a, b, reason=""):
-    for t in (a, b):
-        if not TAG_RE.match(t):
-            return 2, f"tag '{t}' is malformed"
-    path = memdir / "_tag_links.md"
-    old = path.read_text() if path.exists() else "# tag links\n"
-    r = _sanitize(reason)
-    suffix = f" - {r}" if r else ""
-    cleaned = _drop_pair_lines(old, a, b, "!=")        # §7: link removes any distinction between a,b
-    new = _insert_under_heading(cleaned, "Synonyms", f"- `{a}` = `{b}`{suffix}")
-    rc, msg = _mutate_then_validate(memdir, path, old, new)
-    return rc, msg or f"linked `{a}` = `{b}`"
-
-
-def unlink(memdir, a, b, distinguish=False, reason=""):
-    for t in (a, b):
-        if not TAG_RE.match(t):
-            return 2, f"tag '{t}' is malformed"
-    path = memdir / "_tag_links.md"
-    old = path.read_text() if path.exists() else "# tag links\n"
-    if distinguish:
-        r = _sanitize(reason)
-        suffix = f" - {r}" if r else ""
-        cleaned = _drop_pair_lines(old, a, b, "=")     # §7: distinguishing removes any synonym
-        new = _insert_under_heading(cleaned, "Distinctions", f"- `{a}` != `{b}`{suffix}")
-    else:
-        new = _drop_pair_lines(old, a, b, "=")         # drop the a=b / b=a synonym edge
-    rc, msg = _mutate_then_validate(memdir, path, old, new)
-    verb = "distinguished" if distinguish else "unlinked"
-    return rc, msg or f"{verb} `{a}` / `{b}`"
 
 
 def dismiss(query_id, reason):
@@ -2671,17 +2576,9 @@ def main():
         except Exception:  # noqa: BLE001
             print("seats: error (fail-open)")
         return 0
-    if cmd in ("link", "unlink", "add-tag", "dismiss"):
+    if cmd in ("add-tag", "dismiss"):
         pos = _positionals()
-        if cmd == "link":
-            if len(pos) < 2:
-                return _err("usage: link <a> <b> [--reason R]")
-            rc, msg = link(memdir, pos[0], pos[1], _arg("--reason", ""))
-        elif cmd == "unlink":
-            if len(pos) < 2:
-                return _err("usage: unlink <a> <b> [--distinguish] [--reason R]")
-            rc, msg = unlink(memdir, pos[0], pos[1], "--distinguish" in sys.argv, _arg("--reason", ""))
-        elif cmd == "add-tag":
+        if cmd == "add-tag":
             if len(pos) < 1:
                 return _err("usage: add-tag <tag> [--description D] [--facet domain|tool|pattern]")
             rc, msg = add_tag(memdir, pos[0], _arg("--description", ""), _arg("--facet", "tool"))

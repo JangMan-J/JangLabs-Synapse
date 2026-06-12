@@ -8,7 +8,7 @@
 #   - Edit/MultiEdit to a memory            -> cannot reconstruct the full file from
 #                                              new_string; FAIL OPEN (allow).
 #   - Write to taxonomy (_tags.md /         -> validate the PROPOSED .content in a temp
-#     _tag_links.md / _grammar.md)             store (WR-04); DENY on error. FAIL CLOSED.
+#     _grammar.md)                             store (WR-04); DENY on error. FAIL CLOSED.
 #   - Edit/MultiEdit to taxonomy            -> validate the CURRENT on-disk file; DENY on
 #                                              error. Bootstrap (file not on disk) -> allow.
 #     (In-store paths only — same-named files elsewhere are not gated. CR-02.)
@@ -69,7 +69,7 @@ case "$base" in *.md) ;; *) exit 0 ;; esac             # only .md files
 # existing store file resolves to the unique backing inode; a non-existent $abs
 # still compares lexically.
 case "$base" in
-  _tags.md|_tag_links.md|_grammar.md)
+  _tags.md|_grammar.md)
     real_store_f=$(readlink -f -- "$STORE/$base" 2>/dev/null || true)
     real_abs=$(readlink -f -- "$abs" 2>/dev/null || printf '%s' "$abs")
     case "$abs" in
@@ -78,7 +78,7 @@ case "$base" in
     esac ;;                                            # symlink backing file -> gate below
 esac
 case "$base" in
-  _tags.md|_tag_links.md) TYPE=taxonomy ;;
+  _tags.md) TYPE=taxonomy ;;
   _grammar.md)             TYPE=grammar ;;
   MEMORY.md|_*) exit 0 ;;                              # index / generated -> not gated
   *) TYPE=memory ;;
@@ -123,7 +123,7 @@ if [ "$TYPE" = taxonomy ] || [ "$TYPE" = grammar ]; then
     tmpd=$(mktemp -d 2>/dev/null) || tmpd=""
     if [ -n "$tmpd" ]; then
       trap 'rm -rf "$tmpd"' EXIT
-      for f in _tags.md _tag_links.md _grammar.md; do
+      for f in _tags.md _grammar.md; do
         [ -e "$STORE/$f" ] && cp -L "$STORE/$f" "$tmpd/$f" 2>/dev/null
       done
       printf '%s' "$content" > "$tmpd/$base"
