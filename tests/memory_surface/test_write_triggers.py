@@ -343,6 +343,40 @@ class TriggersRoundTrip(TempStore):
         self.assertIn("  triggers:", generated, "triggers must be indented under metadata:")
         self.assertIn("metadata:", generated, "metadata: block must be present")
 
+    def test_deeper_metadata_indent_does_not_swallow_siblings(self):
+        """WR-03: with 4-space metadata children (valid YAML, non-canonical), sibling
+        keys AFTER 'triggers:' must not be swallowed into the triggers dict.
+
+        Before the fix the peek-forward consumed ANY line indented > 2 spaces, so
+        'tags:' after 'triggers:' became a bogus triggers sub-key and the memory's
+        tags were never validated.
+        """
+        content_4space = """\
+---
+name: deep-indent
+description: "memory with 4-space metadata indentation"
+metadata:
+    node_type: memory
+    triggers:
+        commands: [wpctl]
+        paths: []
+        args: []
+        synonyms: []
+    tags: [audio]
+---
+
+body
+"""
+        _, meta, _ = ms.parse_frontmatter(content_4space)
+        t = meta.get("triggers")
+        self.assertIsInstance(t, dict)
+        self.assertEqual(t.get("commands"), ["wpctl"])
+        self.assertNotIn("tags", t,
+                         "sibling 'tags:' must not be swallowed into the triggers dict (WR-03)")
+        self.assertEqual(meta.get("tags"), ["audio"],
+                         "sibling 'tags:' after 'triggers:' must still parse as metadata tags "
+                         "(WR-03)")
+
 
 class TriggerFieldVocabulary(TempStore):
     """D-04: trigger field names are exactly commands/paths/args/synonyms — one grammar vocabulary."""

@@ -146,9 +146,12 @@ def parse_frontmatter(text):
                         i = j
                         continue
                     if k == "triggers" and not v:
-                        # Peek-forward: consume sub-keys at a DEEPER indent level
-                        # (4-space indent for sub-keys vs 2-space for metadata children).
+                        # Peek-forward: consume sub-keys indented strictly DEEPER than
+                        # the 'triggers:' line itself (WR-03: hardcoding the canonical
+                        # 2-space metadata indent swallowed sibling keys when metadata
+                        # children used a deeper — still valid YAML — indent).
                         # Unknown sub-keys are kept in the dict — validation rejects them.
+                        trig_indent = len(raw) - len(raw.lstrip())
                         triggers = {}
                         j = i + 1
                         while j < len(lines):
@@ -156,10 +159,9 @@ def parse_frontmatter(text):
                             if not sub.strip():
                                 j += 1
                                 continue
-                            # A deeper-indented line (starts with 4 spaces or a tab beyond
-                            # the metadata-child 2-space level)
-                            if sub[:4] == "    " or (sub[:1] in (" ", "\t") and
-                                                     len(sub) - len(sub.lstrip()) > 2):
+                            # A line indented strictly deeper than 'triggers:' is a sub-key
+                            if (sub[:1] in (" ", "\t") and
+                                    len(sub) - len(sub.lstrip()) > trig_indent):
                                 ss = sub.strip()
                                 if ":" in ss:
                                     sk, sv = ss.split(":", 1)
