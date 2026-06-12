@@ -333,6 +333,15 @@ rc_is "CONTEXT widened inject -> rc=0 (D-14)" 0 "$got_rc"
 ac=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)
 assert_nonempty "CONTEXT widened: additionalContext non-empty for repo memory/ write (D-14)" "$ac"
 
+echo "── CONTEXT: relative path classified against event cwd (WR-05) ──"
+# A RELATIVE file_path must be resolved against the event's cwd and the resolved path
+# handed to the engine (--target), so the engine classifies the same path the hook
+# detected. cwd = fixture store -> box classification -> dedup candidates present.
+out=$(mkwrite "new-rel-memory.md" "$GOOD_BOX" "$FIX" | "$CTX" 2>/dev/null); got_rc=$?
+rc_is "CONTEXT relative box path -> rc=0 (WR-05)" 0 "$got_rc"
+ac=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)
+assert_contains "CONTEXT relative box path: box-only dedup section present (WR-05)" "Dedup Candidates" "$ac"
+
 echo "── CONTEXT: non-memory silence ──"
 # Write to a random .md outside any store/memory dir → exit 0, empty stdout
 out=$(mkwrite "/tmp/random-doc.md" "some content" | "$CTX" 2>/dev/null); got_rc=$?

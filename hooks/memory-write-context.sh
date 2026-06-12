@@ -83,7 +83,10 @@ fi
 # ── Engine composite injection (D-08) ────────────────────────────────────────
 # Pipe the original hook input JSON into the engine's write-context subcommand to obtain
 # the budget-allocated composite (schema + grammar + dedup candidates + placement guidance).
-MSG=$(printf '%s' "$input" | python3 "$ENGINE" write-context 2>/dev/null)
+# Pass --target with the hook-resolved absolute path (WR-05, mirroring the guard): the
+# engine must classify the SAME path the hook detected, not re-derive a relative event
+# path against its own CWD.
+MSG=$(printf '%s' "$input" | python3 "$ENGINE" write-context --target "$abs" 2>/dev/null)
 [ -n "$MSG" ] || exit 0                               # engine returned empty -> fail open silently
 
 # jq builds the JSON so the multi-line composite is escaped correctly.

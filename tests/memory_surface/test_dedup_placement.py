@@ -885,6 +885,44 @@ class WriteContextComposite(TempStore):
         self.assertGreater(len(result), 0,
                            "write_context() must return non-empty composite for box-store events")
 
+    def test_relative_event_path_classified_against_event_cwd(self):
+        """WR-05: a relative file_path must be anchored to the EVENT's cwd, not the
+        engine process's CWD.
+
+        cwd = the fixture store, so 'new-audio-memory.md' is a box-store write and
+        the box-only dedup-candidates section must appear. Before the fix the raw
+        relative path was realpath'd against the engine's own CWD and classified
+        inconsistently with the hook's decision.
+        """
+        event = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "new-audio-memory.md",
+                "content": PROPOSED_NEAR_DUPLICATE_AUDIO,
+            },
+            "cwd": str(self.store),
+        }
+        result = ms.write_context(self.store, event)
+        self.assertIn("Dedup Candidates", result,
+                      "Relative event path + store cwd must classify as box and emit the "
+                      "dedup-candidates section (WR-05)")
+
+    def test_explicit_target_overrides_event_path(self):
+        """WR-05: write_context(..., target=...) classifies the given absolute path,
+        mirroring check-write --target (the hook passes its resolved path)."""
+        event = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "new-audio-memory.md",   # relative, would be ambiguous
+                "content": PROPOSED_NEAR_DUPLICATE_AUDIO,
+            },
+            # No cwd at all — only the explicit target disambiguates
+        }
+        result = ms.write_context(self.store, event,
+                                  target=str(self.store / "new-audio-memory.md"))
+        self.assertIn("Dedup Candidates", result,
+                      "Explicit --target box path must classify as box (WR-05)")
+
     def test_composite_contains_trigger_schema_hint(self):
         """D-08(a): composite must contain TRIGGER_SCHEMA_HINT text (triggers: schema)."""
         event = self._make_box_event()

@@ -1366,11 +1366,15 @@ def _grammar_digest(entries):
     return "\n".join(lines)
 
 
-def write_context(memdir, event):
+def write_context(memdir, event, target=None):
     """Build the budget-allocated write-time composite for the memory-write-context.sh hook (D-08).
 
     Returns a plain-text string (possibly empty) for inclusion in additionalContext.
     ALWAYS returns str; NEVER raises (fail open — a context hook must never block).
+
+    `target`, when given, is the hook-resolved absolute path of the write (WR-05,
+    mirroring check-write --target): classification then uses the SAME path the hook
+    detected instead of re-deriving the raw event path against the engine's own CWD.
 
     Composite order (D-08):
       (a) Fixed preamble + TRIGGER_SCHEMA_HINT (trigger schema + worked example)
@@ -1381,17 +1385,23 @@ def write_context(memdir, event):
     Returns "" for non-memory events (no .md file_path, infra file, etc.).
     """
     try:
-        return _write_context_impl(memdir, event)
+        return _write_context_impl(memdir, event, target)
     except Exception:
         return ""
 
 
-def _write_context_impl(memdir, event):
+def _write_context_impl(memdir, event, target=None):
     """Internal implementation — any exception propagates to write_context() which catches all."""
     ti = (event or {}).get("tool_input") or {}
-    file_path = ti.get("file_path") or ti.get("path") or ""
+    file_path = target or ti.get("file_path") or ti.get("path") or ""
     if not file_path:
         return ""
+    # No explicit target (direct caller): anchor a relative event path to the event's
+    # cwd, NOT the engine process's CWD (WR-05 — the two can differ arbitrarily).
+    if not target and not os.path.isabs(os.path.expanduser(file_path)):
+        cwd = (event or {}).get("cwd") or ""
+        if cwd:
+            file_path = os.path.join(cwd, file_path)
     # Only process .md files that are not infra files (_* or MEMORY.md)
     basename = os.path.basename(file_path)
     if not basename.endswith(".md"):
@@ -1582,6 +1592,7 @@ def main():
     if cmd == "write-context":
         # D-08: build the budget-allocated composite for memory-write-context.sh.
         # Reads event JSON from stdin or --event FILE; prints composite to stdout.
+        # --target (WR-05): hook-resolved absolute path, mirroring check-write.
         # ALWAYS returns 0, even for empty output (context hook must never block).
         ef = _arg("--event")
         try:
@@ -1589,7 +1600,7 @@ def main():
             event = json.loads(raw)
         except (json.JSONDecodeError, OSError, TypeError):
             event = {}
-        composite = write_context(memdir, event)
+        composite = write_context(memdir, event, target=_arg("--target"))
         if composite:
             sys.stdout.write(composite)
         return 0
