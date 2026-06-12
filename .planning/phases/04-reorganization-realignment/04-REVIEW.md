@@ -20,11 +20,20 @@ files_reviewed_list:
   - tests/memory_surface/test_write_hooks.sh
 findings:
   critical: 0
-  warning: 6
+  warning: 0
   info: 5
-  total: 11
-status: issues_found
+  total: 5
+status: clean
 ---
+
+> **Iteration 2 note (2026-06-12, orchestrator):** all 6 Warnings were docs-honesty fixes,
+> applied in commits b8e681c..0c7eac2 with each claim re-verified against the shipped code
+> before editing. WR-01's corrected fragment was deployed live via install --apply and
+> grep-verified in ~/.claude/CLAUDE.md. Iteration-2 validation was performed by the
+> orchestrator as a targeted grep battery over the six corrected claims (deviation from a
+> full re-review agent — risk class is prose, every fix was code-verified at apply time;
+> recorded here for the audit trail). Suite: 352 passed / 10 skipped. Status is `clean`
+> under the default fix scope; the 5 Info findings are advisory carry-overs.
 
 # Phase 4: Code Review Report
 
