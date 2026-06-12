@@ -109,9 +109,25 @@ _run_once() {
 }
 
 # ── Warm-up (one invocation, not included in samples) ────────────────────────
+# Liveness check (WR-07): _run_once discards output, so a regression that makes
+# the hook exit early (missing/corrupt catalog, wrong -s store, engine crash,
+# gate eating the payload) would produce *excellent* latencies and gate=PASS —
+# inverting the MVR item-3 gate's meaning. The default payload is a fire payload
+# by design: capture the warm-up output once and refuse to benchmark if empty.
+# (Skipped for -p custom payloads, which may legitimately target the silent path.)
 printf '# Warm-up...\n' >&2
 _clear_marks
-_run_once
+if [[ -z "$PAYLOAD_FILE" ]]; then
+  out=$(printf '%s' "$PAYLOAD" \
+    | MEMORY_SURFACE_DIR="$STORE" XDG_RUNTIME_DIR="$BENCH_XDG" \
+      bash "$HOOK" 2>/dev/null) || true
+  if [[ -z "$out" ]]; then
+    echo "ERROR: fire payload produced no output — store/catalog broken; refusing to benchmark a dead path" >&2
+    exit 1
+  fi
+else
+  _run_once
+fi
 
 # ── Sampling loop ─────────────────────────────────────────────────────────────
 SAMPLES=()
