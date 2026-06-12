@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-06-12T09:52:38.476Z"
-last_activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-06-12T15:30:00Z"
+last_activity: 2026-06-12 -- Phase 02 plan 03 complete
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 02 (routing-index-live-recall-cutover) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
+Plan: 4 of 4 (plan 03 complete; plan 04 next)
+Status: Executing Phase 02
+Last activity: 2026-06-12 -- Phase 02 plan 03 complete
 
 Progress: [██░░░░░░░░] 31%
 
@@ -57,6 +57,7 @@ Progress: [██░░░░░░░░] 31%
 | Phase 01 P04 | 25 minutes | 3 tasks | 3 files |
 | Phase 02 P01 | 10 minutes | 3 tasks | 3 files |
 | Phase 02 P02 | 12 | 3 tasks | 2 files |
+| Phase 02 P03 | 45 minutes | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 02-02: Token-routing table pinned spec-first: command/unit→strong; arg→strong/medium/weak; tag→strong/weak; package/path→weak; full paths via byPath→strong (D-25/D-27)
 - [Phase ?]: [02-02] TIER_WEIGHTS not in DEFAULT_CONFIG — merged inside search_new only; keeps existing config schema untouched
 - [Phase ?]: [02-02] Staged dispatch: search-new + MEMORY_SURFACE_SEARCH_IMPL=new; both deleted at Plan 02-04 flip (D-30)
+- [02-03] jq consolidation recovers ~6ms (60ms→54ms p95); 4ms gap to 50ms gate remains at optimized floor — gate FAIL escalated to 02-04 MVR run
+- [02-03] surfaceText extracted via @base64 in jq + base64 -d in shell for safe multiline/← round-trip (T-02-13)
+- [02-03] Unit separator (0x1f) as IFS delimiter for pre-Python field extraction — safe for all tool/path/command values
 
 ### Pending Todos
 
@@ -107,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T09:52:38.473Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-06-12T15:30:00Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

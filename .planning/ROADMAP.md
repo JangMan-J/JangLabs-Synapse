@@ -80,7 +80,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — 5+5 probe runner through the real hook + p95 benchmark harness + jq-reduction budget closure
+- [x] 02-03-PLAN.md — 5+5 probe runner through the real hook + p95 benchmark harness + jq-reduction budget closure (p95 floor 54ms, gate FAIL escalated to 02-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
