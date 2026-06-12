@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-06-12T17:12:26.988Z"
-last_activity: 2026-06-12
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-06-12T18:03:13.560Z"
+last_activity: 2026-06-12 -- Phase 03 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 12
+  completed_plans: 9
   percent: 50
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** The right memory surfaces at the right moment with zero human curation — and the whole system stays legible and maximum-punch-per-pound while doing it.
-**Current focus:** Phase 02 — routing-index-live-recall-cutover
+**Current focus:** Phase 03 — telemetry-self-curation
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-12
+Phase: 03 (telemetry-self-curation) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-12 -- Phase 03 execution started
 
 Progress: [██░░░░░░░░] 31%
 
@@ -60,6 +60,7 @@ Progress: [██░░░░░░░░] 31%
 | Phase 02 P02 | 12 | 3 tasks | 2 files |
 | Phase 02 P03 | 45 minutes | 3 tasks | 3 files |
 | Phase 02 P04 | 90 | 3 tasks | 9 files |
+| Phase 03-telemetry-self-curation P01 | 6 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [02-03] surfaceText extracted via @base64 in jq + base64 -d in shell for safe multiline/← round-trip (T-02-13)
 - [02-03] Unit separator (0x1f) as IFS delimiter for pre-Python field extraction — safe for all tool/path/command values
 - [Phase ?]: D-30 flip complete: search() IS the trigger-index matcher; legacy path removed in single revertable commit 392f351; parse_tag_links() retained for write-path (deferred deletion)
+- [Phase 03]: [03-01] Timestamp format: ISO-8601 UTC via TZ=UTC0 printf -v bash builtin; 03-02 parser uses fromisoformat() — Fork-free bash builtin confirmed working; zero subprocess spawns
+- [Phase 03]: [03-01] _TEL_MAX=1048576 shell constant — saves ~3ms vs per-fire config jq spawn against ~1ms p95 headroom — Discretion-chosen constant documented in hook comment
+- [Phase 03]: [03-01] mems flat shape: per-evidenceTuple {id,tag,type,val}; zero-tuple results get sentinel element for fire-count — Ensures D-43 fire-counting never loses a memory
 
 ### Pending Todos
 
@@ -114,6 +118,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T15:45:45.545Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-06-12T18:03:13.556Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

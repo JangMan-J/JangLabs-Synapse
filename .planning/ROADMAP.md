@@ -106,7 +106,7 @@ Notes: Sequential waves — all engine plans share `lib/memory_surface.py`, and 
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Telemetry capture: fire-event append in recall hook + read-signal arm + Read matcher activation + bench gate (CUR-01/02)
+- [x] 03-01-PLAN.md — Telemetry capture: fire-event append in recall hook + read-signal arm + Read matcher activation + bench gate (CUR-01/02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -145,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
-| 3. Telemetry & Self-Curation | 0/4 | Planned | - |
+| 3. Telemetry & Self-Curation | 1/4 | In Progress|  |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
 ## Coverage
