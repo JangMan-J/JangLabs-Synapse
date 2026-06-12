@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
@@ -55,6 +56,15 @@ Example:
     args: [set-volume]
     synonyms: [wireplumber]
 """
+
+# ---------------------------------------------------------------- dedup constants (Plan 01-03)
+# Conservative threshold — blocks only near-certain duplicates; pinned by contract tests.
+# Adjust fixtures, never loosen this value silently (D-11, D-12).
+DEDUP_BACKSTOP_THRESHOLD = 0.85
+
+# ---------------------------------------------------------------- write-context budget (Plan 01-03)
+# 500-char headroom under the 10,000-char additionalContext cap (D-08).
+WRITE_CONTEXT_BUDGET = 9500
 
 
 # ---------------------------------------------------------------- store location
@@ -600,24 +610,44 @@ def _check_triggers(triggers):
 def _classify_target(target, memdir):
     """Classify the write target to determine which checks to apply.
 
-    Returns 'box' when the write targets the box-brain store (or target is None),
-    'other' otherwise.
+    Returns one of:
+      'box'           — target is None (default) or resolves under the box-brain store
+      'project-store' — path contains a /.claude/projects/ segment followed by /memory/
+      'repo-memory'   — path has a /memory/ component with a non-infra .md basename
+      'other'         — none of the above
 
-    Plan 01-03 extends 'other' into project-store / repo-memory branches.
+    Plan 01-03: extended 'other' into project-store / repo-memory branches (D-13/D-15).
+    Pure string/Path logic on realpath-normalized target (T-01-07 path-escape prevention).
     """
     if target is None:
         return "box"
     # Lexically normalize both paths for prefix comparison
     try:
-        norm_target = os.path.realpath(os.path.normpath(os.path.expanduser(target)))
+        norm_target = os.path.realpath(os.path.normpath(os.path.expanduser(str(target))))
     except (TypeError, ValueError):
         return "other"
     try:
         norm_memdir = os.path.realpath(os.path.normpath(str(memdir)))
     except (TypeError, ValueError):
         return "other"
+    # Box-store: under memdir (or is memdir)
     if norm_target == norm_memdir or norm_target.startswith(norm_memdir + os.sep):
         return "box"
+    # Project-store: path contains /.claude/projects/ ... /memory/
+    # Use forward-slash check after splitting on os.sep to be portable
+    parts = norm_target.replace("\\", "/").split("/")
+    if ".claude" in parts:
+        idx = parts.index(".claude")
+        if (idx + 1 < len(parts) and parts[idx + 1] == "projects" and
+                "memory" in parts[idx + 2:]):
+            return "project-store"
+    # Repo-memory: has a /memory/ path component with a non-infra .md basename
+    basename = os.path.basename(norm_target)
+    if (basename.endswith(".md") and
+            not basename.startswith("_") and
+            basename != "MEMORY.md" and
+            "/memory/" in norm_target.replace("\\", "/")):
+        return "repo-memory"
     return "other"
 
 
@@ -659,21 +689,63 @@ def check_write(memdir, content, target=None):
         close = _closest(t, active)
         hint = f"; closest active: {', '.join(close)}" if close else ""
         return 2, f"memory tag '{t}' is {why}{hint}. Add it to _tags.md first if it is genuinely new."
-    # Triggers validation for box-store writes (D-09): only when content has frontmatter
-    # (a file with no frontmatter is not a structured memory — fail open).
-    if has_frontmatter:
-        store_class = _classify_target(target, memdir)
-        if store_class == "box":
-            triggers = meta.get("triggers")
-            if triggers is None:
-                return 2, (
-                    "box-store memory write requires a 'triggers:' block under metadata: "
-                    "(D-09: triggers must be embedded at write time).\n"
-                    + TRIGGER_SCHEMA_HINT
+    # Structured checks only when content has frontmatter
+    if not has_frontmatter:
+        return 0, ""
+    store_class = _classify_target(target, memdir)
+    if store_class == "box":
+        # --- Box-store branch ---
+        # D-09: triggers required for full Writes to the box store
+        triggers = meta.get("triggers")
+        if triggers is None:
+            return 2, (
+                "box-store memory write requires a 'triggers:' block under metadata: "
+                "(D-09: triggers must be embedded at write time).\n"
+                + TRIGGER_SCHEMA_HINT
+            )
+        rc, reason = _check_triggers(triggers)
+        if rc:
+            return rc, reason
+        # D-11 Layer 2: dedup backstop — only for NEW files (target exists → overwrite/consolidation allowed)
+        if target is not None and not Path(target).exists():
+            desc = (top.get("description", "") or "").strip().strip('"').strip("'")
+            candidates = dedup_candidates(memdir, mtags, desc, top_n=1)
+            if candidates:
+                best_score, best_mem = candidates[0]
+                if best_score >= DEDUP_BACKSTOP_THRESHOLD:
+                    existing_path = best_mem.get("path", "")
+                    existing_id = best_mem.get("id", "")
+                    return 2, (
+                        f"memory appears to duplicate {existing_id!r}; "
+                        f"consolidate into {existing_path} instead of creating a new file."
+                    )
+    elif store_class in ("project-store", "repo-memory"):
+        # --- Non-box branch (D-15 placement gate) ---
+        # Skip legacy tag validation and triggers requirement — no grammar authority
+        # over foreign stores. ONLY run the placement gate: deny only when ALL
+        # grammar-known tags carry placement='box'.
+        grammar = parse_grammar_md(Path(memdir) / "_grammar.md")
+        if grammar:
+            # Collect tags that are known to the grammar
+            known_tags = [t for t in mtags if t in grammar]
+            if known_tags:
+                # Placement gate: all known tags carry placement='box' → deny
+                all_box = all(
+                    grammar[t].get("placement", "either") == "box"
+                    for t in known_tags
                 )
-            rc, reason = _check_triggers(triggers)
-            if rc:
-                return rc, reason
+                if all_box:
+                    # Self-healing: tell the model where to write it
+                    correct_store = str(resolve_memdir())
+                    basename = os.path.basename(target) if target else "memory-filename.md"
+                    return 2, (
+                        f"this memory's tags ({', '.join(sorted(known_tags))}) are "
+                        f"box-placement; write it to {correct_store}/{basename} instead. "
+                        f"Box-general facts belong in the box-brain store "
+                        f"(route by SUBJECT: box-general → {correct_store})."
+                    )
+        # Any other combination (unknown tags, mixed placement, project/either hints) → allow
+    # 'other' targets: unchanged pass-through (no grammar authority, no gate)
     return 0, ""
 
 
@@ -1003,6 +1075,38 @@ def _load_catalog(memdir):
         return json.loads(p.read_text())
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def dedup_candidates(memdir, proposed_tags, proposed_desc, top_n=5):
+    """Return top-N most-similar existing memories by tag overlap + bag-of-words cosine (D-11 L1).
+
+    Score = 0.6 * tag_overlap + 0.4 * cosine_bow, where:
+      tag_overlap = |proposed ∩ mem.tags| / max(len(proposed_tags), 1)
+      cosine_bow  = bag-of-words cosine on lowercased whitespace-split descriptions
+                    (Counter intersection; zero denominator → 0.0)
+
+    Returns list of (score, mem) pairs sorted descending. Empty list on missing/corrupt catalog.
+    Stdlib only (D-11, RESEARCH.md Pattern 4).
+    """
+    catalog = _load_catalog(memdir)
+    if catalog is None:
+        return []
+    prop_tags = set(proposed_tags or [])
+    prop_words = Counter((proposed_desc or "").lower().split())
+    results = []
+    for mem in catalog.get("memories", []):
+        mem_tags = set(mem.get("tags", []) or [])
+        tag_overlap = len(prop_tags & mem_tags) / max(len(prop_tags), 1)
+        mem_words = Counter((mem.get("description", "") or "").lower().split())
+        # Bag-of-words cosine: intersection-sum / (L2-norm_prop * L2-norm_mem)
+        intersection = sum((prop_words & mem_words).values())
+        denom_sq = (sum(v * v for v in prop_words.values()) *
+                    sum(v * v for v in mem_words.values()))
+        cos = intersection / (denom_sq ** 0.5) if denom_sq else 0.0
+        score = 0.6 * tag_overlap + 0.4 * cos
+        results.append((score, mem))
+    results.sort(key=lambda x: x[0], reverse=True)
+    return results[:top_n]
 
 
 def _response_mode(cfg):
