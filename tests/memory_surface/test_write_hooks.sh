@@ -283,12 +283,11 @@ related: []'
 stderr_out=$(mkwrite "$FIX/_grammar.md" "$BROKEN_PROPOSED_GRAMMAR" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
 rc_is "GUARD corrupting _grammar.md Write denied -> rc=2 (WR-04)" 2 "$got_rc"
 
-echo "── GUARD: sibling pre-existing errors don't block a repairing Write (WR-01 iter 2) ──"
-# Break BOTH taxonomy files independently (each carries its own error), then Write
-# fully VALID content for each in turn: the temp-store validation must deny only on
-# NEW errors, so a sibling's pre-existing error cannot deadlock the repair path.
+echo "── GUARD: post-D-50 taxonomy gate contract (WR-01 iter 3) ──"
+# Post-D-50: _tag_links.md is inert store data — writes are ungated (exit 0, no stderr).
+# _tags.md is still the gated taxonomy vocabulary — new errors are still denied (exit 2).
 GOOD_TAGS_SNAPSHOT=$(cat "$FIX/_tags.md")
-GOOD_LINKS_SNAPSHOT=$(cat "$FIX/_tag_links.md")
+# Break _tags.md (active tag 'config' also in Denylist)
 cat > "$FIX/_tags.md" << 'WR01_TAGS_EOF'
 # tags
 ## domain
@@ -300,32 +299,37 @@ cat > "$FIX/_tags.md" << 'WR01_TAGS_EOF'
 - config — too generic
 ## Policy overrides
 WR01_TAGS_EOF
-cat > "$FIX/_tag_links.md" << 'WR01_LINKS_EOF'
-# tag links
-## Synonyms
-- `ghostsyn` = `ghost` - undefined canonical, broken on purpose
-## Distinctions
-## Path Tags
-WR01_LINKS_EOF
-# Repairing Write of _tags.md must NOT be denied for _tag_links.md's ghost error
+# Repairing Write of broken _tags.md must be allowed (pre-existing error, no new errors)
 out=$(mkwrite "$FIX/_tags.md" "$GOOD_TAGS_SNAPSHOT" | "$GUARD" 2>&1); got_rc=$?
-rc_is "GUARD repairing _tags.md Write allowed despite broken sibling -> rc=0 (WR-01)" 0 "$got_rc"
-# Repairing Write of _tag_links.md must NOT be denied for _tags.md's denylist error
-out=$(mkwrite "$FIX/_tag_links.md" "$GOOD_LINKS_SNAPSHOT" | "$GUARD" 2>&1); got_rc=$?
-rc_is "GUARD repairing _tag_links.md Write allowed despite broken sibling -> rc=0 (WR-01)" 0 "$got_rc"
-# A Write introducing a NEW error is still denied even with broken siblings, and
-# the deny message names the NEW error (not the sibling's pre-existing one)
-NEW_ERR_LINKS='# tag links
+rc_is "GUARD repairing _tags.md Write allowed -> rc=0 (WR-01)" 0 "$got_rc"
+# _tag_links.md Write with structurally broken content (undefined canonical) is ungated (D-50)
+WR01_LINKS_BROKEN='# tag links
 ## Synonyms
-- `ghostsyn` = `ghost` - undefined canonical, broken on purpose
-- `phantomsyn` = `phantom` - second undefined canonical, NEW error
+- `boguscanon` = `realias` - undefined canonical, broken on purpose
 ## Distinctions
 ## Path Tags'
-stderr_out=$(mkwrite "$FIX/_tag_links.md" "$NEW_ERR_LINKS" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
-rc_is "GUARD new-error Write still denied with broken siblings -> rc=2 (WR-01)" 2 "$got_rc"
-assert_contains "GUARD deny names the NEW error (WR-01)" "phantom" "$stderr_out"
+stderr_out=$(mkwrite "$FIX/_tag_links.md" "$WR01_LINKS_BROKEN" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD _tag_links.md write ungated (inert data, D-50) -> rc=0" 0 "$got_rc"
+assert_empty "GUARD _tag_links.md write produces no stderr (D-50)" "$stderr_out"
+# Restore tags; _tag_links.md fixture can stay broken (it's ungated inert data)
 printf '%s\n' "$GOOD_TAGS_SNAPSHOT" > "$FIX/_tags.md"
-printf '%s\n' "$GOOD_LINKS_SNAPSHOT" > "$FIX/_tag_links.md"
+# A Write of _tags.md introducing a NEW denylist error is still denied (gate still bites)
+NEW_ERR_TAGS='# tags
+## domain
+- claude-harness — this box'"'"'s Claude Code hooks, fingerprint, statusline, memory
+- git — git version control workflow
+- config — wrongly active NEW error
+- anotherbroken — also wrongly active NEW error
+## tool
+## Denylist
+- config — too generic
+- anotherbroken — also too generic
+## Policy overrides'
+stderr_out=$(mkwrite "$FIX/_tags.md" "$NEW_ERR_TAGS" | "$GUARD" 2>&1 >/dev/null); got_rc=$?
+rc_is "GUARD new-error _tags.md Write denied -> rc=2 (WR-01)" 2 "$got_rc"
+assert_contains "GUARD deny names the new _tags.md error (WR-01)" "denylist" "$stderr_out"
+# Restore snapshot
+printf '%s\n' "$GOOD_TAGS_SNAPSHOT" > "$FIX/_tags.md"
 
 echo "── GUARD: symlink backing file of store taxonomy is gated (WR-02 iter 2) ──"
 # The live store's taxonomy files are symlinks into the lab; a Write addressed via

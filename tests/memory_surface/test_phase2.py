@@ -419,16 +419,6 @@ class Mutators(Base):
         rc, _ = ms.add_tag(self.store, "BadCaps", "x", "tool")
         self.assertEqual(rc, 2)
 
-    def test_link_ok(self):
-        rc, _ = ms.link(self.store, "kwin", "tailscale", "test")
-        self.assertEqual(rc, 0)
-
-    def test_link_fail_closed_rolls_back(self):
-        before = (self.store / "_tag_links.md").read_text()
-        rc, _ = ms.link(self.store, "ghosttag", "kwin")  # canonical 'ghosttag' not active
-        self.assertEqual(rc, 2)
-        self.assertEqual((self.store / "_tag_links.md").read_text(), before)
-
 
 class Perf(Base):
     def test_warm_search_under_budget(self):
@@ -493,50 +483,16 @@ class ReviewRegressions(Base):
                   and Path(o).name != "MEMORY.md" and not Path(o).name.startswith("_")]
         self.assertEqual(bodies, [])                                    # no rebuild -> no body reads
 
-    def test_link_removes_existing_distinction(self):
-        rc, _ = ms.link(self.store, "kde-wayland", "kde-x11", "now same")
-        self.assertEqual(rc, 0)                                         # §7: link strips the distinction
-        self.assertNotIn("!=", (self.store / "_tag_links.md").read_text())
-
-    def test_unlink_distinguish_removes_existing_synonym(self):
-        rc, _ = ms.unlink(self.store, "kwin", "plasma-compositor", distinguish=True, reason="diverge")
-        self.assertEqual(rc, 0)                                         # §7: distinguishing strips synonym
-        txt = (self.store / "_tag_links.md").read_text()
-        self.assertIn("`kwin` != `plasma-compositor`", txt)
-        self.assertNotIn("`kwin` = `plasma-compositor`", txt)
-
-    def test_freetext_reason_cannot_inject_taxonomy(self):
-        rc, _ = ms.link(self.store, "kwin", "tailscale",
-                        "ok\n- `config` — sneaky injected active tag")
-        self.assertEqual(rc, 0)
-        links = (self.store / "_tag_links.md").read_text()
-        # newline + backticks stripped -> payload is inert reason text, not a structural graph node
-        self.assertNotIn("`config`", links)
-        self.assertNotIn("config", ms.parse_tags_md(self.store / "_tags.md")["active"])
-        self.assertEqual(ms.validate(self.store), [])
-
-    def test_multiple_synonym_set_rejected(self):
-        self.assertEqual(ms.link(self.store, "kwin", "tailscale")[0], 0)
-        rc, _ = ms.link(self.store, "git", "tailscale")                 # tailscale alias of two canonicals
-        self.assertEqual(rc, 3)                                         # §10 exit 3 = graph integrity
-        self.assertEqual(ms.validate(self.store), [])                   # rolled back -> clean
-
     def test_mutator_ignores_preexisting_unrelated_error(self):
         # a pre-existing taxonomy issue must not block an unrelated, valid add-tag.
-        (self.store / "_tag_links.md").write_text(
-            "# tag links\n## Synonyms\n- `boguscanon` = `x` - bad\n## Distinctions\n## Path Tags\n")
+        # Inject a broken _tags.md: insert 'config' as an active tag under ## domain while
+        # it is also in ## Denylist without a Policy override (mirrors test_phase1.py:186).
+        bad_tags = TAGS_MD.replace("- nvidia — gpu",
+                                   "- nvidia — gpu\n- config — wrongly active")
+        (self.store / "_tags.md").write_text(bad_tags)
         self.assertTrue(ms.validate(self.store))                        # store is already invalid
         rc, _ = ms.add_tag(self.store, "freshtag", "a perfectly fine six word description here", "tool")
         self.assertEqual(rc, 0)                                        # unrelated edit still allowed
-
-    def test_mutator_blocks_duplicate_error_edit(self):
-        # a NEW edit producing a message IDENTICAL to a pre-existing error must still roll back.
-        (self.store / "_tag_links.md").write_text(
-            "# tag links\n## Synonyms\n- `ghost` = `kwin` - bad\n## Distinctions\n## Path Tags\n")
-        before = (self.store / "_tag_links.md").read_text()
-        rc, _ = ms.link(self.store, "ghost", "git")    # 'ghost' canonical not active -> same error string
-        self.assertEqual(rc, 2)                         # multiplicity diff -> not masked
-        self.assertEqual((self.store / "_tag_links.md").read_text(), before)  # rolled back
 
     def test_sudo_flag_and_env_extraction(self):
         norm = lambda c: sorted({t["value"] for t in self._search(

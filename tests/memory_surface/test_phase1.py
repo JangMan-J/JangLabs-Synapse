@@ -189,13 +189,6 @@ class Validate(TempStore):
         errs = ms.validate(self.store)
         self.assertTrue(any("config" in e and "denylist" in e.lower() for e in errs), errs)
 
-    def test_synonym_canonical_must_be_active(self):
-        bad_links = TAG_LINKS_MD.replace("`remote-desktop` = `remote-access`",
-                                         "`not-a-real-tag` = `remote-access`")
-        make_store(self.store, links_md=bad_links)
-        errs = ms.validate(self.store)
-        self.assertTrue(any("not-a-real-tag" in e for e in errs), errs)
-
 
 class CheckWrite(TempStore):
     def setUp(self):
@@ -270,10 +263,10 @@ class Rebuild(TempStore):
         self.assertIn("m2", cat["tagToMemoryIds"].get("git", []))
 
     def test_synonym_canonicalization(self):
-        # Post-flip (2026-06-12, D-30): rebuild() derives smap from grammar synonyms, not
-        # _tag_links.md synonyms. The phase1 fixture has no _grammar.md, so no synonym map.
+        # Post-flip (2026-06-12, D-30): rebuild() derives smap from grammar synonyms only.
+        # The phase1 fixture has no _grammar.md, so no synonym map.
         # canonicalTags for remote-access = ["remote-access"] (identity, no grammar synonym).
-        # The _tag_links.md synonym `remote-desktop = remote-access` is now write-path only.
+        # The _tag_links.md synonym graph is inert legacy data; no write path since Phase 4 (D-50).
         self._store_with_memories()
         cat = ms.rebuild(self.store)
         m3 = next(m for m in cat["memories"] if m["id"] == "m3")
