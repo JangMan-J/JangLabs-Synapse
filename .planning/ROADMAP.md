@@ -46,7 +46,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Dedup (advisory + backstop) + store-placement gate + write-context composite builder
+- [x] 01-03-PLAN.md — Dedup (advisory + backstop) + store-placement gate + write-context composite builder
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trigger Grammar & Write-Time Intelligence | 2/4 | In Progress|  |
+| 1. Trigger Grammar & Write-Time Intelligence | 3/4 | In Progress|  |
 | 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
