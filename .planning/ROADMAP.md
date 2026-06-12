@@ -13,7 +13,7 @@ Synapse rebuilds the tag-routing memory subsystem around six binding principles,
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Trigger Grammar & Write-Time Intelligence** - Unified tags-as-triggers artifact, MVR gate, and a write pipeline that derives triggers, dedups, and places memories in the right store
+- [x] **Phase 1: Trigger Grammar & Write-Time Intelligence** - Unified tags-as-triggers artifact, MVR gate, and a write pipeline that derives triggers, dedups, and places memories in the right store (completed 2026-06-12)
 - [ ] **Phase 2: Routing Index & Live Recall Cutover** - Rebuildable routing index, near-free evidence-routed recall with explainable fires, contract tests + probes, and gated cutover from the old path
 - [ ] **Phase 3: Telemetry & Self-Curation** - Fire/read telemetry, automated maintenance pass with rare-critical floor, Roulette retirement, machine-governed base-floor seats
 - [ ] **Phase 4: Reorganization & Realignment** - Subsystem boundaries, component re-justification, docs/reality realignment, install layout re-derived from the new core
@@ -50,7 +50,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-04-PLAN.md — Live hook deployment (widened detection) + walking-skeleton demonstration
+- [x] 01-04-PLAN.md — Live hook deployment (widened detection) + walking-skeleton demonstration
 
 Notes: The old routing path stays live and untouched throughout this phase (no routing gap — removal is gated by the MVR checklist in Phase 2). The new grammar artifact coexists alongside the legacy `_tags.md`/`_tag_links.md` until cutover; clean slate for routing metadata is accepted by design.
 
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Trigger Grammar & Write-Time Intelligence | 3/4 | In Progress|  |
+| 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 0/TBD | Not started | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |

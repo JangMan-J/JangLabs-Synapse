@@ -15,7 +15,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **CORE-04**: Per-tool-call recall is a precomputed lookup routed on behavioral evidence (paths touched, commands run, symbols named) parsed from tool_input — no LLM call, no embeddings; added wall time ≤ 50ms p95 per tool call on this box (measured baseline: 28–51ms)
 - [ ] **CORE-05**: Every recall block cites the evidence tuple that fired it ({tag, trigger_type, matched_value}) — a wrong fire is diagnosable in seconds
 - [ ] **CORE-06**: Recall fires only above a confidence threshold — silence is the default; advisory posture and fail-open behavior preserved
-- [ ] **CORE-07**: A new memory is deduplicated/consolidated against the store before trigger derivation — the store stays canonical
+- [x] **CORE-07**: A new memory is deduplicated/consolidated against the store before trigger derivation — the store stays canonical
 - [ ] **CORE-08**: Every store mutation path — tool-mediated writes, engine/game mutations, bulk operations — leaves the routing index consistent; the staleness class is eliminated structurally, not patched per-path
 - [ ] **CORE-09**: The routing grammar ships with spec-derived contract tests and live reference probes (obvious-should-fire and obvious-should-stay-silent cases) — tests pin the declared spec, never the implementation
 
@@ -37,7 +37,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **ORG-01**: The repo is restructured into clear subsystem boundaries (base harness / memory system / install tooling) with one source of truth each
 - [ ] **ORG-02**: Every component is re-justified against the working implementation; README, CLAUDE.md, fragment, and findings accurately describe what exists
 - [ ] **ORG-03**: The install layout (how files map into ~/.claude) is re-derived from the new core's needs; agent-harness.py remains the single idempotent entry point
-- [ ] **ORG-04**: Memory writes route to the correct store by subject — the dark-memory mis-placement class is eliminated
+- [x] **ORG-04**: Memory writes route to the correct store by subject — the dark-memory mis-placement class is eliminated
 
 ## v2 Requirements
 
@@ -73,8 +73,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CORE-01 | Phase 1 | In Progress (01-01: grammar artifact + parser + schema validation delivered) |
 | CORE-02 | Phase 1 | Complete |
-| CORE-07 | Phase 1 | Pending |
-| ORG-04 | Phase 1 | Pending |
+| CORE-07 | Phase 1 | Complete |
+| ORG-04 | Phase 1 | Complete |
 | MIG-01 | Phase 1 | In Progress (01-01: gate checklist committed as first Phase-1 artifact) |
 | CORE-03 | Phase 2 | Pending |
 | CORE-04 | Phase 2 | Pending |
