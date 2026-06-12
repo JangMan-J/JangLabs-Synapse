@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-06-12T18:34:44.301Z"
-last_activity: 2026-06-12 -- Phase 03 Plan 02 complete (CUR-03 delivered)
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-06-12T18:52:00.000Z"
+last_activity: 2026-06-12 -- Phase 03 Plan 04 complete (CUR-05 delivered — seat governance)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 50
+  completed_plans: 12
+  percent: 75
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 03 (telemetry-self-curation) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 03 Plan 02 complete (CUR-03 delivered)
+Phase: 03 (telemetry-self-curation) — COMPLETE
+Plan: 4 of 4 (all plans complete)
+Status: Phase complete — ready for Phase 04
+Last activity: 2026-06-12 -- Phase 03 Plan 04 complete (CUR-05 delivered — seat governance)
 
-Progress: [███░░░░░░░] 36%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [███░░░░░░░] 36%
 | Phase 03-telemetry-self-curation P01 | 6 | 3 tasks | 4 files |
 | Phase 03-telemetry-self-curation P02 | 18 | 3 tasks | 3 files |
 | Phase 03-telemetry-self-curation P03 | 5min | 2 tasks | 5 files |
+| Phase 03-telemetry-self-curation P04 | 15min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Recent decisions affecting current work:
 - [Phase 03]: [03-02] jq for state/config reads in hook — avoids Python spawn on no-op path; negative delta = rotation reset -> use cur_lines
 - [Phase ?]: Rules-level gate OPEN despite instance CLOSED: minimum-evidence guard defers all mutations (03-03)
 - [Phase ?]: Roulette retired via symmetric remove+install cycle; before/after diff shows exactly one removal (03-03)
+- [03-04] All 11 live MEMORY.md seats show covered:false/no-derivable-probe — confirms seat bar valid (no per-tool-call trigger evidence for these memories by design)
+- [03-04] Seat-link regex must match ](stem.md) not [title](stem.md) — handles [[Misfire]/[Rewire]] nested-bracket titles; affects _parse_seat_stems in both seat_probes.py and memory_surface.py
+- [03-04] Evidence window for seat governance = maintenance pass standard (>=10 sessions OR >=30d span); pending block is the human-veto safety net
 
 ### Pending Todos
 
@@ -125,6 +129,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T18:34:44.297Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-06-12T18:52:00Z
+Stopped at: Completed 03-04-PLAN.md (Phase 03 complete)
 Resume file: None

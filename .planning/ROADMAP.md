@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Trigger Grammar & Write-Time Intelligence** - Unified tags-as-triggers artifact, MVR gate, and a write pipeline that derives triggers, dedups, and places memories in the right store (completed 2026-06-12)
 - [x] **Phase 2: Routing Index & Live Recall Cutover** - Rebuildable routing index, near-free evidence-routed recall with explainable fires, contract tests + probes, and gated cutover from the old path (completed 2026-06-12)
-- [ ] **Phase 3: Telemetry & Self-Curation** - Fire/read telemetry, automated maintenance pass with rare-critical floor, Roulette retirement, machine-governed base-floor seats
+- [x] **Phase 3: Telemetry & Self-Curation** - Fire/read telemetry, automated maintenance pass with rare-critical floor, Roulette retirement, machine-governed base-floor seats (completed 2026-06-12)
 - [ ] **Phase 4: Reorganization & Realignment** - Subsystem boundaries, component re-justification, docs/reality realignment, install layout re-derived from the new core
 
 ## Phase Details
@@ -118,7 +118,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03-04-PLAN.md — Machine-governed router seats: probe proof + evidence-window gate + pending-change block (CUR-05)
+- [x] 03-04-PLAN.md — Machine-governed router seats: probe proof + evidence-window gate + pending-change block (CUR-05)
 
 Notes: Sequential waves — plans share `lib/memory_surface.py` and `tests/memory_surface/test_phase3.py`, hooks are live via symlink (tests green before dependent edits), and retirement is hard-gated on the D-45 validation verdict. The ≤55ms recall p95 gate is re-proven after the telemetry append (03-01) and at phase exit (03-04).
 
@@ -145,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
 | 2. Routing Index & Live Recall Cutover | 4/4 | Complete    | 2026-06-12 |
-| 3. Telemetry & Self-Curation | 3/4 | In Progress|  |
+| 3. Telemetry & Self-Curation | 4/4 | Complete    | 2026-06-12 |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 
 ## Coverage

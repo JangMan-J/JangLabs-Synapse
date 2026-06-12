@@ -30,7 +30,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **CUR-02**: The system detects from observable behavior whether a recalled memory was subsequently used (read-confirmation signal)
 - [x] **CUR-03**: A periodic automated maintenance pass promotes, demotes, and decays memories from telemetry — with a rare-critical floor preventing runaway decay; no human review required
 - [x] **CUR-04**: Memory Roulette is retired as a human ritual once the automated maintenance pass is validated against it
-- [ ] **CUR-05**: Base-floor (MEMORY.md router) seat membership is governed by the same telemetry — seat changes are machine-decided (a seat is demoted only once probes prove recall covers it), visible and vetoable in git but requiring no hand-audit
+- [x] **CUR-05**: Base-floor (MEMORY.md router) seat membership is governed by the same telemetry — seat changes are machine-decided (a seat is demoted only once probes prove recall covers it), visible and vetoable in git but requiring no hand-audit
 
 ### Reorganization
 
@@ -87,7 +87,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CUR-02 | Phase 3 | Complete |
 | CUR-03 | Phase 3 | Complete (03-02) |
 | CUR-04 | Phase 3 | Complete |
-| CUR-05 | Phase 3 | Pending |
+| CUR-05 | Phase 3 | Complete (03-04) |
 | ORG-01 | Phase 4 | Pending |
 | ORG-02 | Phase 4 | Pending |
 | ORG-03 | Phase 4 | Pending |
