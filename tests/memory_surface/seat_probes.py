@@ -83,7 +83,8 @@ def _clear_marks() -> None:
 # Seat stem extraction (shared rule: markdown links under Always-relevant heading)
 # ---------------------------------------------------------------------------
 
-_SEAT_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^/)]+)\.md\)")  # store-relative only
+# Match ](stem.md) — robust to nested brackets in link titles (e.g. [[Misfire] ...](stem.md))
+_SEAT_LINK_RE = re.compile(r"\]\(([^/)]+)\.md\)")
 
 
 def parse_seat_stems(store: Path) -> list:
@@ -108,7 +109,7 @@ def parse_seat_stems(store: Path) -> list:
                 break  # another section — stop
             m = _SEAT_LINK_RE.search(stripped)
             if m:
-                stems.append(m.group(2))  # group 2 = stem (without .md)
+                stems.append(m.group(1))  # group 1 = stem (without .md)
     return stems
 
 

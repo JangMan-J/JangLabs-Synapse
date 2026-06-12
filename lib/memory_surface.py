@@ -908,7 +908,8 @@ def maintenance(memdir, shadow=False):
 
 # ---------------------------------------------------------------- Seat governance (D-47/D-48)
 
-_SEAT_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^/)]+)\.md\)")  # store-relative only
+# Match ](stem.md) — robust to nested brackets in link titles (e.g. [[Misfire] ...](stem.md))
+_SEAT_LINK_RE = re.compile(r"\]\(([^/)]+)\.md\)")
 
 
 def _parse_seat_stems(memdir):
@@ -933,7 +934,7 @@ def _parse_seat_stems(memdir):
                 break
             m = _SEAT_LINK_RE.search(stripped)
             if m:
-                stems.append(m.group(2))
+                stems.append(m.group(1))  # group 1 = stem (without .md)
     return stems
 
 
