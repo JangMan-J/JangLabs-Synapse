@@ -82,16 +82,18 @@ maintains metadata.**
 - ✓ Workspace handoff index regeneration (`handoff-index.sh`) — existing
 - ✓ Idempotent install/remove/status CLI (`agent-harness.py`), dry-run default, per-command settings merge, no permission mutation — existing
 - ✓ Narrow break-glass disable for the base floor (`fix-memory-plug.sh`) — existing
+- ✓ Tags-as-triggers grammar artifact + write-time trigger derivation, dedup, and store placement — Validated in Phase 1: Trigger Grammar & Write-Time Intelligence (2026-06-12)
+- ✓ Rebuildable trigger-routing index (`triggerIndex` in catalog), evidence-routed recall with inline `←` tuples, ≤55ms p95 (operator-recalibrated), contract tests + 5+5 live probes, legacy path pruned at the MVR-gated flip (commit 392f351) — Validated in Phase 2: Routing Index & Live Recall Cutover (2026-06-12)
 
 ### Active
 
 <!-- Current scope. Building toward these. Hypotheses until shipped. -->
 
-- [ ] Reimagined tag routing core implementing the six-principle philosophy
-- [ ] Tags-as-triggers: vocabulary, path rules, and tag links unified into one artifact
-- [ ] Write-time intelligence pipeline: trigger derivation at memory-save time
-- [ ] Read path as precomputed-index lookup, near-free per tool call
-- [ ] Index as build artifact: full rebuild from store contents at any time
+- [x] Reimagined tag routing core implementing the six-principle philosophy (Phases 1–2 complete; live since the 2026-06-12 flip)
+- [x] Tags-as-triggers: vocabulary, path rules, and tag links unified into one artifact (Phase 1)
+- [x] Write-time intelligence pipeline: trigger derivation at memory-save time (Phase 1)
+- [x] Read path as precomputed-index lookup, near-free per tool call (Phase 2)
+- [x] Index as build artifact: full rebuild from store contents at any time (Phase 2)
 - [ ] Telemetry-driven self-curation (promotion/demotion/decay); zero human curation
 - [ ] Memory Roulette retired as human ritual (automated maintenance pass replaces it)
 - [ ] Repo reorganized into clear subsystem boundaries (base harness / memory system / install tooling)
@@ -185,4 +187,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 after initialization*
+*Last updated: 2026-06-12 — Phase 2 complete (routing index live, legacy path pruned)*
