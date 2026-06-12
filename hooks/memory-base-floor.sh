@@ -76,7 +76,10 @@ if [ -f "$_bf_tel" ]; then
     if [ -r "$ENGINE_FLOOR" ]; then
       # D-40: hard 2-second cap; write_atomic os.replace guarantees
       # a kill never lands partial frontmatter (T-03-13).
-      _maint_summary=$(timeout 2 python3 "$ENGINE_FLOOR" maintenance 2>/dev/null || true)
+      # --recheck-threshold (WR-02): the engine re-verifies this gate under its
+      # O_EXCL lock, so two near-simultaneous SessionStarts cannot both run the
+      # pass off the same stale lastPassLine read above.
+      _maint_summary=$(timeout 2 python3 "$ENGINE_FLOOR" maintenance --recheck-threshold 2>/dev/null || true)
     fi
   fi
 fi

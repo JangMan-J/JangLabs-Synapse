@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -827,13 +828,94 @@ def _update_maintenance_state(memdir):
     write_atomic(state_path, json.dumps(state))
 
 
-def maintenance(memdir, shadow=False):
+_MAINT_LOCK_STALE_SECS = 300   # a pass runs <2s (hook cap); anything older is a corpse
+
+
+def _acquire_maintenance_lock(memdir):
+    """Best-effort exclusive advisory lock for the non-shadow maintenance pass (WR-02).
+
+    O_CREAT|O_EXCL on _maintenance_state.json.lock. Returns the lock Path on
+    success, None when another pass holds a fresh lock OR on any error (fail
+    open by SKIPPING mutations — never by running unlocked). A stale lock
+    left by a killed pass (older than _MAINT_LOCK_STALE_SECS) is reclaimed.
+    """
+    lock_path = memdir / "_maintenance_state.json.lock"
+    for _ in range(2):                  # one retry after a stale-lock reclaim
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            return lock_path
+        except FileExistsError:
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                continue                # lock vanished between open and stat — retry create
+            if age <= _MAINT_LOCK_STALE_SECS:
+                return None             # fresh lock: a concurrent pass is running
+            try:
+                lock_path.unlink()      # stale corpse — reclaim, then retry create
+            except OSError:
+                return None
+        except OSError:
+            return None                 # unwritable store etc. — mutations would fail anyway
+    return None
+
+
+def _release_maintenance_lock(lock_path):
+    try:
+        lock_path.unlink()
+    except OSError:
+        pass
+
+
+def _recheck_threshold(memdir):
+    """Re-derive the hook's D-40 threshold decision under the lock (WR-02).
+
+    Mirrors memory-base-floor.sh Block 2, including the rotation-reset rule
+    (negative delta -> all current lines count as new). Closes the hook's
+    read-then-act race: two near-simultaneous SessionStarts both pass the
+    shell gate, but the lock serializes the spawns and the later one
+    re-checks against the state the first one just advanced — and skips.
+    Fail-open direction is SKIP (False): the cost of a wrong skip is one
+    deferred pass; the cost of a wrong run is a doubled declineCount.
+    """
+    try:
+        cfg = load_config(memdir)
+        thresh = int(cfg.get("maintenanceTriggerCount", 50))
+        try:
+            with (memdir / "_recall_telemetry.jsonl").open() as f:
+                cur = sum(1 for _ in f)
+        except OSError:
+            cur = 0
+        try:
+            last = int(json.loads(
+                (memdir / "_maintenance_state.json").read_text()
+            ).get("lastPassLine", 0) or 0)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            last = 0
+        new = cur - last
+        if new < 0:
+            new = cur                   # rotation-reset (same rule as the hook)
+        return new >= thresh
+    except Exception:  # noqa: BLE001 — fail open by skipping
+        return False
+
+
+def maintenance(memdir, shadow=False, recheck=False):
     """Run the automated maintenance pass (D-40/D-41/D-42/D-43).
 
     shadow=True: compute promote/demote/zero_fire without writing any file (D-45).
+    recheck=True: re-verify the D-40 trigger threshold under the lock before
+    mutating (WR-02 — the CLI sets this for hook-spawned passes via
+    --recheck-threshold; direct API callers default to an unconditional pass).
     Returns {promoted, demoted, zero_fire, summary, insufficient_evidence} dict.
     Non-shadow prints the summary line to stdout (for memory-base-floor.sh capture).
     Wraps all internal errors to fail open — no exception propagates to the caller.
+
+    Concurrency (WR-02): non-shadow passes serialize on an O_EXCL advisory
+    lock (_maintenance_state.json.lock). The loser skips silently — no print,
+    no mutation — so two simultaneous SessionStarts cannot double-increment
+    declineCount for one logical pass period.
 
     D-43 rare-critical floor: memories with ZERO fires in the telemetry window are
     NEVER demoted. Only fired-but-never-read memories decay. The guard precedes all
@@ -845,7 +927,19 @@ def maintenance(memdir, shadow=False):
     diagnostics but carries insufficient_evidence=True so consumers know the
     real pass would defer.
     """
+    lock_path = None
     try:
+        if not shadow:
+            lock_path = _acquire_maintenance_lock(memdir)
+            if lock_path is None:
+                # Another pass holds the lock — the loser exits silently (WR-02).
+                return {"promoted": [], "demoted": [], "zero_fire": [],
+                        "summary": "", "insufficient_evidence": False,
+                        "skipped": "lock-held"}
+            if recheck and not _recheck_threshold(memdir):
+                return {"promoted": [], "demoted": [], "zero_fire": [],
+                        "summary": "", "insufficient_evidence": False,
+                        "skipped": "threshold-unmet"}
         cfg = load_config(memdir)
         promote_thresh = cfg.get("promoteThreshold", 0.4)
         demote_thresh = cfg.get("demoteThreshold", 0.05)
@@ -913,6 +1007,9 @@ def maintenance(memdir, shadow=False):
     except Exception:  # noqa: BLE001 — fail open; engine errors must not block SessionStart
         return {"promoted": [], "demoted": [], "zero_fire": [], "summary": "0 demoted, 0 promoted",
                 "insufficient_evidence": False}
+    finally:
+        if lock_path is not None:
+            _release_maintenance_lock(lock_path)
 
 
 # ---------------------------------------------------------------- Seat governance (D-47/D-48)
@@ -2508,7 +2605,9 @@ def main():
         return 0
     if cmd == "maintenance":
         try:
-            maintenance(memdir)
+            # --recheck-threshold (WR-02): hook-spawned passes re-verify the D-40
+            # trigger under the lock so a concurrent/duplicate spawn no-ops.
+            maintenance(memdir, recheck="--recheck-threshold" in sys.argv)
         except Exception:  # noqa: BLE001
             pass
         return 0

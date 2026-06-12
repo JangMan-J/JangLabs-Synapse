@@ -782,6 +782,62 @@ class MaintenancePass(unittest.TestCase):
         self.assertIsInstance(state["lastPassLine"], int)
         self.assertGreater(state["lastPassLine"], 0)
 
+    # ── WR-02: O_EXCL advisory lock — concurrent passes cannot double-mutate ──
+    def _demote_fixture(self, stem):
+        """Memory + telemetry that makes `stem` a demote candidate with evidence met."""
+        _make_memory(self.store, stem, decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record(stem, _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += self._evidence()
+        self._write_tel(lines)
+
+    def test_lock_held_skips_mutations(self):
+        """A fresh _maintenance_state.json.lock makes maintenance() skip silently."""
+        self._demote_fixture("mem-lock")
+        lock = self.store / "_maintenance_state.json.lock"
+        lock.touch()
+        result = ms.maintenance(self.store)
+        self.assertEqual(result["demoted"], [])
+        self.assertEqual(result.get("skipped"), "lock-held")
+        _, meta, _ = ms.parse_frontmatter((self.store / "mem-lock.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "0")), "0",
+                         "no mutation while another pass holds the lock")
+        self.assertTrue(lock.exists(), "the loser must not remove the winner's lock")
+
+    def test_stale_lock_reclaimed_and_released(self):
+        """A lock older than the stale window is reclaimed; the pass runs and
+        removes its own lock afterwards."""
+        self._demote_fixture("mem-stale")
+        lock = self.store / "_maintenance_state.json.lock"
+        lock.touch()
+        stale = _time.time() - 400          # > _MAINT_LOCK_STALE_SECS (300)
+        os.utime(lock, (stale, stale))
+        result = ms.maintenance(self.store)
+        self.assertIn("mem-stale", result["demoted"],
+                      "stale lock must be reclaimed, pass must proceed")
+        self.assertFalse(lock.exists(), "pass must release its lock when done")
+
+    def test_cli_recheck_threshold_no_ops_after_recent_pass(self):
+        """CLI maintenance --recheck-threshold skips when lastPassLine already
+        covers the telemetry — closes the hook's read-then-act race (WR-02)."""
+        self._demote_fixture("mem-recheck")
+        # Simulate: another session's pass just completed and claimed all lines
+        with self.tel.open() as f:
+            cur_lines = sum(1 for _ in f)
+        (self.store / "_maintenance_state.json").write_text(
+            json.dumps({"lastPassLine": cur_lines, "lastPassTs": _now_ts()}))
+        env = dict(os.environ, MEMORY_SURFACE_DIR=str(self.store))
+        p = subprocess.run(
+            [sys.executable, str(LAB / "lib" / "memory_surface.py"),
+             "maintenance", "--recheck-threshold"],
+            capture_output=True, text=True, env=env
+        )
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(p.stdout.strip(), "", "recheck-skip must be silent")
+        _, meta, _ = ms.parse_frontmatter((self.store / "mem-recheck.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "0")), "0",
+                         "duplicate spawn must not re-run the pass")
+
     # ── WR-01: claim-then-mutate — state advances even when the pass dies mid-loop ──
     def test_state_claimed_before_mutations(self):
         """A pass that fails mid-mutation must still have advanced
