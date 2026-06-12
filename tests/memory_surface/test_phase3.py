@@ -131,10 +131,17 @@ class TelemetryAppend(unittest.TestCase):
         ms.rebuild(self.store)
         catalog_path = self.store / "_memory_catalog.json"
         catalog = json.loads(catalog_path.read_text())
-        # byMemoryId keys are the memory stems; no .jsonl stem should appear
-        by_id = catalog.get("byMemoryId", {})
+        # WR-10: byMemoryId lives under triggerIndex — the old top-level
+        # catalog.get("byMemoryId", {}) was always {} and the assertion could
+        # never fail. Check the real location AND the memories list.
+        by_id = catalog.get("triggerIndex", {}).get("byMemoryId", {})
         self.assertNotIn("_recall_telemetry", by_id,
-                          "_recall_telemetry must not appear in catalog byMemoryId")
+                         "_recall_telemetry must not appear in triggerIndex.byMemoryId")
+        mem_ids = {m["id"] for m in catalog.get("memories", [])}
+        self.assertNotIn("_recall_telemetry", mem_ids,
+                         "_recall_telemetry must not appear in the catalog memories list")
+        # Sanity: the fixture store is non-empty, so the checked sets are real
+        self.assertTrue(mem_ids, "fixture catalog must contain memories (guards vacuity)")
 
     # ── Gated/silent calls do not append ─────────────────────────────────────
     def test_silent_call_no_append(self):
