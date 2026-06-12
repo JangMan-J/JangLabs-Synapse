@@ -1,6 +1,6 @@
 # synapse
 
-A Claude Code harness for this box. A dozen hook scripts + a CLAUDE.md fragment + a settings.json fragment, installed globally to `~/.claude/`. Designed to be cheap per turn, narrow in scope, and easy to remove.
+A Claude Code harness for this box. 12 hook scripts + a CLAUDE.md fragment + a settings.json fragment, installed globally to `~/.claude/`. Designed to be cheap per turn, narrow in scope, and easy to remove.
 
 ## What it does
 
@@ -12,24 +12,24 @@ A Claude Code harness for this box. A dozen hook scripts + a CLAUDE.md fragment 
 | Output verification | `syntax-check-touched.sh` runs `jq empty` / `python -c ast.parse` / `bash -n` etc. on touched files | `PostToolUse` (Edit/Write/MultiEdit) | 10–100ms when fires |
 | Secret-write block | `forbidden-files-guard.sh` blocks writes to `.env`, `*.key`, `*.pem`, `~/.ssh/`, `~/.gnupg/` | `PreToolUse` (Edit/Write/MultiEdit) | ~5ms |
 | Config drift block | `config-drift-guard.sh` rejects settings.json edits that introduce `disableAllHooks` / `bypassPermissions` / silent `defaultMode` shifts | `PreToolUse` (Edit/Write/MultiEdit) | ~5ms |
-| Memory upkeep | `memory-review-offer.sh` surfaces a "Memory Roulette" review round (spawns the Python engine), capped at one offer per local day. Offer priority: vocabulary defects (orphan/overbroad tags) → entry rounds (intake backlog deterministic, then 30d staleness) → tag backlog on quiet days (90d cycle) | `UserPromptSubmit` | ≤1 python spawn/day, no-op otherwise |
-| Memory base layer | `memory-base-floor.sh` injects the box-brain `MEMORY.md` router (the curated always-relevant floor) into every session whose active store isn't box-brain, so the floor is present regardless of cwd — the *base* of a base+scoped memory env | `SessionStart` | 1 read+jq at session start; silent at `$HOME` |
+| Memory base layer | `memory-base-floor.sh` injects the box-brain `MEMORY.md` router (the curated always-relevant floor) into every session whose active store isn't box-brain, so the floor is present regardless of cwd; automated maintenance pass (telemetry-driven promote/demote/decay) runs here when telemetry threshold is met | `SessionStart` | 1 read+jq at session start; silent at `$HOME` |
 | Handoff discovery | `handoff-index.sh` regenerates `<workspace>/.handoff_index` — every handoff across the labs' `.claude/handoffs/`, the tracked `synapse/handoffs/` archive, and `~/.claude/handoffs/`, **grouped by scope** (cross-lab / per-lab / box / stale) read from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged | `SessionStart` | 1 `find`+`grep` sweep at session start; no-op off-workspace |
 
 A CLAUDE.md fragment adds: a verify-before-act rule, a memory-consultation rule, a `[Rewire]`/`[Misfire]` reflection-trigger rule for knowledge accretion, and an LSP-trust rule.
 
 ### Memory surfacing subsystem
 
-A tag-routed memory system (the "ToolSearch pattern transposed to memories") layers on top of the box-brain store. It is **base + scoped**, mirroring how `~/.claude/CLAUDE.md` (global) + `<repo>/CLAUDE.md` (scoped) stack — because Claude Code keys each memory store to the **git-repo root** and auto-loads only that one store's `MEMORY.md`:
+A trigger-index-routed memory system (the "ToolSearch pattern transposed to memories") layers on top of the box-brain store. It is **base + scoped**, mirroring how `~/.claude/CLAUDE.md` (global) + `<repo>/CLAUDE.md` (scoped) stack — because Claude Code keys each memory store to the **git-repo root** and auto-loads only that one store's `MEMORY.md`:
 
 | Hook / part | Event | Role |
 |---|---|---|
-| `memory-base-floor.sh` | `SessionStart` | **Base layer** — inject the box-brain `MEMORY.md` router into every session whose active store isn't box-brain; silent (no double-load) when launched at `$HOME`. Re-fires on compact. |
+| `memory-base-floor.sh` | `SessionStart` | **Base layer** — inject the box-brain `MEMORY.md` router into every session whose active store isn't box-brain; silent (no double-load) when launched at `$HOME`. Re-fires on compact. Triggers the automated maintenance pass when telemetry threshold is met (D-44). |
 | *(native)* `<repo>/memory/MEMORY.md` | startup | **Scoped layer** — the active repo's own store, auto-loaded by Claude Code, adds atop the floor. |
-| `memory-recall.sh` | `PreToolUse` | **Demand-paging** — advisory `<memory-recall>` block of tag/tool-evidence-routed matches before a tool call; never denies, fails open, dedups per memory ~15 min. |
-| `memory-write-context.sh` / `memory-write-guard.sh` | `PreToolUse` | On writes to the store: surface write-time context, and validate tags against `_tags.md` (taxonomy writes fail **closed**). |
-| `memory-catalog-refresh.sh` | `PostToolUse` | Rebuild `_memory_catalog.json` after a memory write. |
-| `lib/memory_surface.py` | — | The engine: token extraction, semantic-graph canonicalization (`_tags.md` + `_tag_links.md`), ranking, catalog build, router validation. |
+| `memory-recall.sh` | `PreToolUse` | **Demand-paging** — advisory `<memory-recall>` block of trigger-index-routed matches before a tool call; never denies, fails open, dedups per memory ~15 min. Recall budget: ≤55ms p95 (recalibrated, operator-approved). |
+| `memory-write-context.sh` | `PreToolUse` | On writes to the memory store: inject write-time context (grammar vocabulary + trigger-spec schema + examples) so the model derives the `triggers:` block at save time. |
+| `memory-write-guard.sh` | `PreToolUse` | Validate tags against `_tags.md`; validate `triggers:` block shape; taxonomy writes fail **closed**. Dedup/placement gate: validates the target store path. |
+| `memory-catalog-refresh.sh` | `PostToolUse` | Rebuild `_memory_catalog.json` after a memory write; fire/read telemetry logging for automated curation. |
+| `lib/memory_surface.py` | — | The engine: trigger-index routing (precomputed `_memory_catalog.json` triggerIndex lookup over tool_input evidence), catalog rebuild from `triggers:` frontmatter, write-time context/validation, telemetry-driven maintenance pass, machine-governed router seats. |
 
 See `findings/memory-surfacing.md` and `handoffs/2026-06-01-memory-surfacing-build-plan.md` for the design.
 
@@ -41,6 +41,7 @@ See `findings/memory-surfacing.md` and `handoffs/2026-06-01-memory-surfacing-bui
 - No writes to `permissions` at all — not `allow`/`deny`, not `defaultMode`, not any bypass flag. Permission posture stays the user's.
 - No MCP servers added.
 - No skills pre-created. Skills should crystallize from observed Nth-session patterns, not anticipated ones.
+- No Memory Roulette / manual curation rituals — store health is maintained by the telemetry-driven automated maintenance pass.
 
 ## Install / uninstall
 
@@ -73,28 +74,45 @@ Re-enable with `./agent-harness.py install --apply`. This is narrower than
 
 ## Files
 
-| File | Role |
-|------|------|
-| `hooks/system-fingerprint.sh` | UserPromptSubmit — 9-line box fingerprint, cached 60s |
-| `hooks/lab-scope.sh` | UserPromptSubmit — inject a lab scope banner when the cwd's lab changes inside a `.claude-workspace`-marked tree; silent off-workspace |
-| `hooks/bash-idiom-guard.sh` | PreToolUse(Bash) — block non-Arch idioms |
-| `hooks/syntax-check-touched.sh` | PostToolUse(Edit/Write) — narrow syntax verification |
-| `hooks/forbidden-files-guard.sh` | PreToolUse(Edit/Write) — block secret-path writes |
-| `hooks/config-drift-guard.sh` | PreToolUse(Edit/Write) — block settings weakening |
-| `hooks/memory-review-offer.sh` | UserPromptSubmit — offer a Memory Roulette round (entry or tag-vocabulary), ≤1×/day |
-| `hooks/memory-base-floor.sh` | SessionStart — inject the box-brain MEMORY.md router as a base memory floor when the active store isn't box-brain; silent at `$HOME` |
-| `hooks/handoff-index.sh` | SessionStart — regenerate `<workspace>/.handoff_index` (all handoffs across labs + `~/.claude/handoffs/`, grouped by scope from each file's `<!-- handoff-scope: X -->` tag, path-inferred when untagged); silent off a `.claude-workspace`-marked tree |
-| `hooks/memory-recall.sh` | PreToolUse — advisory tag-routed memory recall before a tool call; never denies, fails open |
-| `hooks/memory-write-context.sh` | PreToolUse — surface context on writes to the memory store |
-| `hooks/memory-write-guard.sh` | PreToolUse — validate memory/taxonomy writes (tags vs `_tags.md`); taxonomy fails closed |
-| `hooks/memory-catalog-refresh.sh` | PostToolUse — rebuild `_memory_catalog.json` after a memory write |
-| `lib/memory_surface.py` | Memory-surfacing engine (token extraction, ranking, catalog build, router validation) |
-| `memory/_tags.md`, `memory/_tag_links.md` | Tag vocabulary + semantic graph; symlinked into the box-brain store |
-| `CLAUDE.md.fragment` | Appended to `~/.claude/CLAUDE.md` between sentinels |
-| `settings.global.fragment.json` | Merged into `~/.claude/settings.json` (hooks only) |
-| `memory/_review_game.py` | Memory Roulette engine; symlinked into the box-brain memory store by agent-harness.py (self-locates its store from `$HOME`) |
-| `agent-harness.py` | Idempotent install / remove / status CLI (dry-run by default; supersedes the former `install.sh`+`uninstall.sh`) |
-| `fix-memory-plug.sh` | Break-glass: unplug ONLY the `memory-base-floor.sh` SessionStart hook (and its symlink) from `settings.json`, leaving every other hook and all permissions intact. Idempotent; `--dry-run`/`--help`; re-enable via `agent-harness.py install --apply` |
+SC-1 component-justification table — every shipped file, its subsystem, why it exists, and its source of truth.
+
+| File | Subsystem | Justification | Source of truth |
+|------|-----------|---------------|-----------------|
+| `hooks/system-fingerprint.sh` | Base Harness | Injects 9 live box-fact lines (kernel, shell, GPU, package manager) so Claude never reasons from stale training-data assumptions | This file |
+| `hooks/lab-scope.sh` | Base Harness | Narrows context to the active lab inside a `.claude-workspace`-marked multi-lab workspace; silent off-workspace | This file |
+| `hooks/bash-idiom-guard.sh` | Base Harness | Blocks non-Arch package-manager and boot-tool idioms with a corrective message; one-call defense against the most common wrong commands | This file |
+| `hooks/syntax-check-touched.sh` | Base Harness | Runs `jq`/`python`/`bash -n` on files touched by Edit/Write; catches syntax errors before they enter the codebase | This file |
+| `hooks/forbidden-files-guard.sh` | Base Harness | Blocks writes to secret paths (`.env`, `*.key`, `~/.ssh/`, etc.); the primary secret-write defense — never disable | This file |
+| `hooks/config-drift-guard.sh` | Base Harness | Blocks settings.json edits that would weaken the permission model; security invariant — never disable | This file |
+| `hooks/handoff-index.sh` | Base Harness | Regenerates `.handoff_index` (scope-grouped handoff discovery) each session; enables cold-start resumability across labs | This file |
+| `hooks/memory-base-floor.sh` | Memory System | Injects the box-brain MEMORY.md router as the base memory floor each session; triggers automated maintenance pass when telemetry threshold met | This file |
+| `hooks/memory-recall.sh` | Memory System | Demand-pages memories via trigger-index lookup (precomputed catalog) before each tool call; ≤55ms p95; advisory, never denies | This file |
+| `hooks/memory-write-context.sh` | Memory System | Injects grammar vocabulary + trigger-spec schema at write time so the model derives `triggers:` in-context — once, experience-fresh | This file |
+| `hooks/memory-write-guard.sh` | Memory System | Validates tags and `triggers:` shape at write time; taxonomy writes fail closed; dedup/placement gate | This file |
+| `hooks/memory-catalog-refresh.sh` | Memory System | Rebuilds `_memory_catalog.json` after a store write; logs fire/read telemetry for automated curation | This file |
+| `lib/memory_surface.py` | Memory Engine | Single-file engine for all memory operations: trigger-index routing, catalog rebuild, write-time context/validation, telemetry-driven maintenance, seat governance | This file |
+| `memory/_grammar.md` | Store (data) | Grammar vocabulary + trigger-spec schema for the memory system; lab-sourced, install-managed (linked into the box-brain store by `agent-harness.py`); the canonical vocabulary source | This file (lab-authoritative) |
+| `memory/_tags.md` | Store (data) | Tag vocabulary; lab-sourced, install-managed; write-guard validates tags against this file; accumulates session-authored tags | This file (lab-authoritative) |
+| `memory/_tag_links.md` | Store (data) | Legacy synonym/path-tag graph — inert since Phase 4 (D-50 excised all write-path callers); retained as store data, not removed, because the store is data and its history is real | Store (unmanaged, inert) |
+| `agent-harness.py` | Install Tooling | Single idempotent entry point for install/remove/status; dry-run by default; per-run timestamped backups; never touches permissions | This file |
+| `CLAUDE.md.fragment` | Install Tooling | Source for the `# --- begin/end Claude-Lab harness fragment ---` block in `~/.claude/CLAUDE.md`; deployed by `install --apply`; the fragment is NOT live until applied | This file |
+| `settings.global.fragment.json` | Install Tooling | Source for hook registrations merged into `~/.claude/settings.json`; the single canonical registration manifest | This file |
+| `fix-memory-plug.sh` | Install Tooling | Break-glass: unplugs `memory-base-floor.sh` SessionStart entry only, leaving every other hook intact; idempotent; re-enable via `install --apply` | This file |
+| `findings/memory-surfacing.md` | Design History | Append-only record of non-obvious design decisions, adversarial-review outcomes, and accepted tradeoffs for the memory-surfacing system | This file |
+| `tests/memory_surface/test_routing_contract.py` | Test Suite | Contract tests pinning recall routing specs (behavior-first, not implementation); the living spec for the trigger-index engine | This file |
+| `tests/memory_surface/test_phase1.py` | Test Suite | Phase 1 regression tests — hook I/O contracts, taxonomy validation, write-guard paths | This file |
+| `tests/memory_surface/test_phase2.py` | Test Suite | Phase 2 regression tests — mutator behavior, dedup/placement, catalog rebuild | This file |
+| `tests/memory_surface/test_phase3.py` | Test Suite | Phase 3 regression tests — telemetry, maintenance pass, seat governance | This file |
+| `tests/memory_surface/test_base_floor.py` | Test Suite | Base-floor injection logic, floor/recall dedup, symlinked-cwd edge case | This file |
+| `tests/memory_surface/test_dedup_placement.py` | Test Suite | Dedup mark lifecycle, placement gate, TTL behavior | This file |
+| `tests/memory_surface/test_grammar.py` | Test Suite | Grammar vocabulary parsing, trigger-spec validation | This file |
+| `tests/memory_surface/test_write_triggers.py` | Test Suite | Write-time trigger derivation hook paths | This file |
+| `tests/memory_surface/test_probe_runner.py` | Test Suite | Probe runner harness for shadow/seat validation | This file |
+| `tests/memory_surface/test_write_hooks.sh` | Test Suite | Shell-level write-hook battery (WR-01): gate behavior proven end-to-end via stdin/exit codes | This file |
+| `tests/memory_surface/bench_recall.sh` | Test Suite | Recall latency benchmark; ≤55ms p95 gate mandatory after any hot-path change | This file |
+| `tests/memory_surface/run_shadow_validation.py` | Test Suite | Shadow-validation runner: compare recall output against reference answers | This file |
+| `tests/memory_surface/seat_probes.py` | Test Suite | Seat governance probes: machine-governed router seat behavior | This file |
+| `handoffs/` | Design Archive | Tracked design-record handoffs (committed history); the authoritative cold-start resumability artifacts for each major build phase | This directory |
 
 ## Iteration
 
