@@ -242,9 +242,13 @@ def run_probe(store: Path) -> dict:
                              "reason": "hook-timeout-or-error"}
             continue
 
-        matched = (result.returncode == 0
-                   and result.stdout.strip()
-                   and _stem_in_context(stem, result.stdout))
+        # bool() is load-bearing: `and` short-circuits to the middle operand, so a
+        # silent hook (exit 0, empty stdout — the documented COMMON case for seats)
+        # yields b"" here. Storing that bytes value made json.dumps raise at the
+        # sidecar write, aborting the whole run (CR-01).
+        matched = bool(result.returncode == 0
+                       and result.stdout.strip()
+                       and _stem_in_context(stem, result.stdout))
         results[stem] = {
             "covered": matched,
             "payload": payload,

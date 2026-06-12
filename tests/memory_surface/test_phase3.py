@@ -1513,6 +1513,30 @@ class SeatGovernance(unittest.TestCase):
         self.assertEqual(seat_result.get("reason"), "missing-memory",
                          "reason must be 'missing-memory' for absent seat memory file")
 
+    # ── Probe: derivable trigger but hook stays silent → sidecar still written ─
+    def test_probe_silent_hook_sidecar_written(self):
+        """Seat whose derived probe payload the hook screens out (a pure-generic
+        command like `grep` never reaches the engine): the hook runs but stays
+        silent (exit 0, no output) — the documented common case for seats, since a
+        seat exists because recall could not cover it. The sidecar must still be
+        written with covered/matched as real JSON booleans (CR-01 regression: the
+        un-bool'd `and` chain leaked b"" into the dict and json.dumps raised,
+        aborting the run before the sidecar write)."""
+        _make_seat_store(self.store, seats=[("seat-silent", "command:grep")])
+        rc, out, err = self._run_probes()
+        self.assertEqual(rc, 0, f"runner must exit 0; stderr={err!r}")
+        self.assertNotIn("error (fail-open)", err,
+                         "a silent probe must not abort the run")
+        results_path = self.store / "_seat_probe_results.json"
+        self.assertTrue(results_path.exists(),
+                        "sidecar must be written even when a probe is silent")
+        data = json.loads(results_path.read_text())
+        seat_result = data["results"].get("seat-silent")
+        self.assertIsNotNone(seat_result, "seat-silent must have a result entry")
+        self.assertIs(seat_result.get("covered"), False, "covered must be JSON false, not bytes")
+        self.assertIs(seat_result.get("matched"), False, "matched must be JSON false, not bytes")
+        self.assertEqual(seat_result.get("reason"), "hook-silent-or-stem-absent")
+
     # ── Probe: empty store → exit 0, empty results ───────────────────────────
     def test_probe_empty_store_exit_zero(self):
         """Empty store (no MEMORY.md) → exit 0, empty results, no crash."""
