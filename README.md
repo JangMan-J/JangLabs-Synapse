@@ -28,7 +28,7 @@ A trigger-index-routed memory system (the "ToolSearch pattern transposed to memo
 | `memory-recall.sh` | `PreToolUse` | **Demand-paging** — advisory `<memory-recall>` block of trigger-index-routed matches before a tool call; never denies, fails open, dedups per memory ~15 min. Recall budget: ≤55ms p95 (recalibrated, operator-approved). |
 | `memory-write-context.sh` | `PreToolUse` | On writes to the memory store: inject write-time context (grammar vocabulary + trigger-spec schema + examples) so the model derives the `triggers:` block at save time. |
 | `memory-write-guard.sh` | `PreToolUse` | Validate tags against `_tags.md`; validate `triggers:` block shape; taxonomy writes fail **closed**. Dedup/placement gate: validates the target store path. |
-| `memory-catalog-refresh.sh` | `PostToolUse` | Rebuild `_memory_catalog.json` after a memory write; fire/read telemetry logging for automated curation. |
+| `memory-catalog-refresh.sh` | `PostToolUse` | Rebuild `_memory_catalog.json` after a memory write; logs the read-back telemetry signal (fire records are logged by `memory-recall.sh`). |
 | `lib/memory_surface.py` | — | The engine: trigger-index routing (precomputed `_memory_catalog.json` triggerIndex lookup over tool_input evidence), catalog rebuild from `triggers:` frontmatter, write-time context/validation, telemetry-driven maintenance pass, machine-governed router seats. |
 
 See `findings/memory-surfacing.md` and `handoffs/2026-06-01-memory-surfacing-build-plan.md` for the design.
@@ -96,7 +96,7 @@ SC-1 component-justification table — every shipped file, its subsystem, why it
 | `hooks/memory-recall.sh` | Memory System | Demand-pages memories via trigger-index lookup (precomputed catalog) before each tool call; ≤55ms p95; advisory, never denies | This file |
 | `hooks/memory-write-context.sh` | Memory System | Injects grammar vocabulary + trigger-spec schema at write time so the model derives `triggers:` in-context — once, experience-fresh | This file |
 | `hooks/memory-write-guard.sh` | Memory System | Validates tags and `triggers:` shape at write time; taxonomy writes fail closed; dedup/placement gate | This file |
-| `hooks/memory-catalog-refresh.sh` | Memory System | Rebuilds `_memory_catalog.json` after a store write; logs fire/read telemetry for automated curation | This file |
+| `hooks/memory-catalog-refresh.sh` | Memory System | Rebuilds `_memory_catalog.json` after a store write; logs the read-back telemetry signal (fires are logged by `memory-recall.sh`) | This file |
 | `lib/memory_surface.py` | Memory Engine | Single-file engine for all memory operations: trigger-index routing, catalog rebuild, write-time context/validation, telemetry-driven maintenance, seat governance | This file |
 | `memory/_grammar.md` | Store (data) | Grammar vocabulary + trigger-spec schema for the memory system; lab-sourced, install-managed (linked into the box-brain store by `agent-harness.py`); the canonical vocabulary source | This file (lab-authoritative) |
 | `memory/_tags.md` | Store (data) | Tag vocabulary; lab-authoritative backing file — the existing store symlink is left in place but no longer install-managed (ORG-03); write-guard validates tags against this file; accumulates session-authored tags | This file (lab-authoritative) |

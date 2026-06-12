@@ -216,9 +216,10 @@ vocabulary + trigger-spec schema at save time; the model derives the `triggers:`
 `memory-write-guard.sh` validates tags against `_tags.md` (fail closed) and the `triggers:` block
 shape. The write hooks, not the read path, are where taxonomy enforcement lives.
 
-**Fire/read telemetry.** `memory-catalog-refresh.sh` logs a JSONL record on every catalog rebuild
-(fire) and on read-back (PostToolUse Read when the path was recently recalled). The telemetry
-powers the automated maintenance pass.
+**Fire/read telemetry.** `memory-recall.sh` appends the fire record (`{ts,qid,mems,conf}`) when
+it emits an advisory block; `memory-catalog-refresh.sh` appends only the read-signal record
+(`{ts,id,signal:"read"}` on a PostToolUse Read of a store memory whose dedup mark is fresh) and
+writes nothing on catalog rebuild. The telemetry powers the automated maintenance pass.
 
 **Automated maintenance pass.** `memory-base-floor.sh` (SessionStart) triggers the maintenance
 pass when the telemetry JSONL has grown by >50 records since last maintenance. The pass
@@ -226,14 +227,20 @@ promotes high-read-rate memories, demotes/decays low-read-rate ones, and maintai
 rare-critical always-relevant entries. Memory Roulette and `_review_game.py` were retired in
 Phase 3 and deleted in Phase 4 (D-49). No human ritual; all machine-governed.
 
-**Machine-governed seats.** The engine manages a fixed count of "router seats" — top memories
-always injected regardless of evidence score. Seat governance runs on the write/rebuild path.
+**Machine-governed seats.** The engine governs the MEMORY.md "router seats" via `seats()`
+(CUR-05, D-47/D-48), which runs inside the SessionStart maintenance pass — `maintenance()`
+calls it under the same D-40 telemetry cadence — not on the write/rebuild path. It emits
+demote/promote *proposals* (the PENDING-SEAT-CHANGES block in MEMORY.md), gated by probe
+coverage + telemetry evidence; it does not enforce a fixed seat count.
 
 **Recall latency.** ≤55ms p95 (recalibrated and operator-approved after Phase 4 clean-up).
 Benchmark: `tests/memory_surface/bench_recall.sh` with `gate=PASS` threshold.
 
-**Minimum-evidence guard.** A memory fires only when it meets a minimum evidence threshold
-(sessions OR calendar days window) to prevent noisy surfacing of newly-written memories.
+**Minimum-evidence guard.** Maintenance *mutations* (promote/demote/decay, and seat demotions)
+require a minimum evidence window — >= `minEvidenceSessions` distinct session-days OR
+>= `minEvidenceDays` observed span — before any non-shadow pass mutates the store. This
+prevents premature demotion of newly-written memories (the 9b0c87b regression class).
+Recall firing is NOT gated by it: a newly-written memory surfaces immediately.
 
 **Living spec.** `tests/memory_surface/test_routing_contract.py` is the authoritative
 behavioral specification for the trigger-index engine. Pin new behavior here, not in the
