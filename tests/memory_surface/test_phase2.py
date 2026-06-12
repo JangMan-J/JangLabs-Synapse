@@ -311,7 +311,7 @@ class Ranking(Base):
 
 class MinCandidate(Base):
     """Surface-gate tests. test_thresholds used the legacy _meets_min_candidate(cats) interface
-    which is deleted (tuple-based gate in _meets_min_candidate_new replaces it). The behavior
+    which is deleted (tuple-based gate in _meets_min_candidate replaces it). The behavior
     test (single weak token stays silent) remains valid and is kept."""
 
     # test_single_weak_does_not_surface: retired — the fixture grammar (GRAMMAR_MD) assigns

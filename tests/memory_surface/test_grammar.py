@@ -454,6 +454,26 @@ class GrammarValidationSchema(TempStore):
         errors = ms.validate_grammar(self.store)
         self.assertEqual(errors, [])
 
+    def test_nonempty_zero_tag_parse_fails(self):
+        """Integration WARNING-01: non-empty grammar content that parses to ZERO tag
+        entries (e.g. '##' headings instead of '###') must FAIL validation — passing
+        it would corrupt routing at the next rebuild. Missing file still fails open."""
+        _make_grammar_store(self.store, MINIMAL_VALID)
+        (self.store / "_grammar.md").write_text(
+            "# Unified Trigger Grammar\nVersion: v0\n\n---\n\n"
+            "## domain\n\n## not-a-tag-heading\ncommands: [foo]\n"
+        )
+        errors = ms.validate_grammar(self.store)
+        self.assertTrue(len(errors) >= 1, "zero-tag parse from non-empty content must error")
+        self.assertTrue(any("zero tag entries" in e for e in errors), f"got: {errors}")
+
+    def test_missing_grammar_file_fails_open(self):
+        """Missing _grammar.md still returns [] (fail-open) — only the
+        non-empty-but-unparseable case errors (WARNING-01 guard)."""
+        _make_grammar_store(self.store, MINIMAL_VALID)
+        (self.store / "_grammar.md").unlink()
+        self.assertEqual(ms.validate_grammar(self.store), [])
+
     def test_synonyms_only_tag_fails_with_tag_named(self):
         """D-03/spec: a tag with synonyms but empty commands+paths+args fails validation.
 

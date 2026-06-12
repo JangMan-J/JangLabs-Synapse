@@ -350,9 +350,20 @@ def validate_grammar(memdir):
     - Unknown field names are errors
     - Facet must be in FACET_HEADS
     """
-    grammar = parse_grammar_md(Path(memdir) / "_grammar.md")
+    gpath = Path(memdir) / "_grammar.md"
+    grammar = parse_grammar_md(gpath)
     if not grammar:
-        return []                                   # missing file -> fail open (no errors)
+        # Missing file -> fail open (no errors). But NON-EMPTY content that parses
+        # to zero tags is a malformed grammar (e.g. '##' headings instead of '###')
+        # — passing it would corrupt routing at the next rebuild (integration
+        # WARNING-01, milestone audit 2026-06-12).
+        try:
+            if gpath.exists() and gpath.read_text().strip():
+                return ["grammar parsed to zero tag entries from non-empty content "
+                        "— malformed structure (expected '### <tag>' headings)"]
+        except OSError:
+            pass
+        return []                                   # missing/unreadable file -> fail open
     errors = []
     all_tags = set(grammar.keys())
     for tag, entry in grammar.items():
@@ -1898,7 +1909,7 @@ def _render_tuples(tuples):
     return "; ".join(parts) if parts else "matched (no tuple)"
 
 
-def _meets_min_candidate_new(tuples):
+def _meets_min_candidate(tuples):
     """Surface gate: a memory surfaces only if ≥1 strong-tier tuple OR ≥2 tuples total.
 
     A single synonym-only (weak) match violates both conditions → SILENT (CORE-06/D-27).
@@ -2092,7 +2103,7 @@ def search(memdir, event, now=None):
         if mid not in all_mems:
             continue
         mem = all_mems[mid]
-        if not _meets_min_candidate_new(tuples):
+        if not _meets_min_candidate(tuples):
             continue
         score = _score_tuples(tuples, mem, now, tw)
         scored.append((score, tuples, mem))
