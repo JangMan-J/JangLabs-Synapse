@@ -60,6 +60,9 @@ BLOCK_RE_TRIM = re.compile(
 
 # Lab-sourced memory assets are symlinked into the store; generated artifacts never are.
 GENERATED_MEMORY = {"_memory_catalog.json", "_memory_surface_config.json"}
+# Only taxonomy + game-engine infra is lab-sourced. Entry files the store owns outright;
+# a stray entry in the lab dir (mis-routed write) must never be re-linked into the store.
+MEMORY_INFRA = {"_tags.md", "_tag_links.md", "_review_game.py"}
 
 
 # --------------------------------------------------------------------- helpers
@@ -160,7 +163,7 @@ def _memory_sources():
     if not MEMORY_SRC.is_dir():
         return
     for src in sorted(MEMORY_SRC.iterdir()):
-        if not src.is_file() or src.name.startswith(".") or src.name in GENERATED_MEMORY:
+        if src.name not in MEMORY_INFRA or not src.is_file():
             continue
         yield src
 
