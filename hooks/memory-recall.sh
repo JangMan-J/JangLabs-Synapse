@@ -89,15 +89,30 @@ fi
 resp=$(printf '%s' "$input" | python3 "$ENGINE" search 2>/dev/null) || exit 0
 [ -n "$resp" ] || exit 0
 
-# ── Post-Python: extract count, ids, and surfaceText in ONE jq spawn (T-02-13 / CORE-04).
-# surfaceText is @base64-encoded to survive multiline content and ← characters.
+# ── Post-Python: extract count, ids, surfaceText, queryId, and mems in ONE jq spawn
+# (T-02-13 / CORE-04 — fire-path jq count stays 3). surfaceText is @base64-encoded to
+# survive multiline content and ← characters. Line 4: queryId for telemetry (D-34).
+# Line 5: flat mems array per D-34 — for each results[] element r, for each
+# r.evidenceTuples[] tuple t: {id:r.id, tag:t.tag, type:t.trigger_type, val:t.matched_value}.
+# A result with zero tuples contributes one element {id:r.id,tag:"",type:"",val:""} so
+# fire-counting never loses a memory. Line 6: confidence for telemetry conf field.
 # Fail-open: jq error or empty → vars stay empty/zero, gates below exit silently.
 _post=$(printf '%s' "$resp" | jq -r '
   ((.results // []) | length | tostring),
   ([(.results // [])[].id // empty] | join(" ")),
-  (.surfaceText // "" | @base64)
+  (.surfaceText // "" | @base64),
+  (.queryId // ""),
+  ([(.results // [])[] as $r |
+    if ($r.evidenceTuples // []) == [] then
+      {id: $r.id, tag: "", type: "", val: ""}
+    else
+      ($r.evidenceTuples[] | {id: $r.id, tag: .tag, type: .trigger_type, val: .matched_value})
+    end
+  ] | @json),
+  (.confidence // "low")
 ' 2>/dev/null || true)
-{ IFS= read -r n; IFS= read -r ids; IFS= read -r _surface_b64; } <<< "$_post"
+{ IFS= read -r n; IFS= read -r ids; IFS= read -r _surface_b64;
+  IFS= read -r _qid; IFS= read -r _mems_json; IFS= read -r _tel_conf; } <<< "$_post"
 
 case "${n:-0}" in ''|0|*[!0-9]*) exit 0 ;; esac          # no results -> silent
 
@@ -137,4 +152,24 @@ fi
 surface=${surface//mode=\"required\"/mode=\"advisory\"}
 jq -cn --arg ctx "$surface" \
   '{suppressOutput:true,hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$ctx}}'
+
+# D-33/D-34/D-35/D-36: telemetry fire event — written AFTER emission, fail-open (CUR-01).
+# Gate on _qid: only emissions produce a non-empty queryId; gated/silent exits never reach here.
+# _TEL_MAX: discretion-chosen constant (~1MB) for rotation — a per-fire config jq read would
+# cost ~3ms against ~1ms of p95 headroom; constant keeps fire-path forks at zero.
+_TEL_MAX=1048576
+if [ -n "$_qid" ]; then
+  TZ=UTC0 printf -v _tel_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1  # fork-free bash builtin timestamp
+  _tel="$STORE/_recall_telemetry.jsonl"
+  # D-35: size-gated rotation at _TEL_MAX; mv is atomic on same fs; race loser gets ENOENT (|| true)
+  if [ -f "$_tel" ] && [ "$(stat -c%s "$_tel" 2>/dev/null || echo 0)" -ge "$_TEL_MAX" ]; then
+    mv "$_tel" "${_tel}.1" 2>/dev/null || true
+  fi
+  # T-03-01: skip append if telemetry path is a symlink (tampering hardening)
+  if [ ! -L "$_tel" ]; then
+    printf '%s\n' \
+      "{\"ts\":\"${_tel_ts}\",\"qid\":\"${_qid}\",\"mems\":${_mems_json:-[]},\"conf\":\"${_tel_conf:-low}\"}" \
+      >> "$_tel" || true
+  fi
+fi
 exit 0
