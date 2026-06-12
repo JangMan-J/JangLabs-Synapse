@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# memory-catalog-refresh.sh — PostToolUse, matcher=Edit|Write|MultiEdit.
+# memory-catalog-refresh.sh — PostToolUse, matcher=Edit|Write|MultiEdit (rebuild) + Read (read-signal arm, D-37).
 #
 # After a memory or taxonomy file is written, rebuild _memory_catalog.json so the
 # tag index stays current. rebuild is always rc 0 and writes atomically; its
 # invalidMemories JSON (stderr) is discarded to keep the hook quiet on success.
+#
+# Read arm (D-37/D-38): if tool=Read AND path is inside store AND a live dedup mark
+# exists, append {ts,id,signal:"read"} to _recall_telemetry.jsonl — then exit 0.
+# Read events NEVER trigger a catalog rebuild.
 #
 # PostToolUse cannot block the call (the tool already ran). The one non-quiet
 # path: a TAXONOMY write that left the taxonomy invalid — surfaced via the proven
@@ -17,7 +21,17 @@ ENGINE="$(dirname "$SELF")/../lib/memory_surface.py"
 command -v jq >/dev/null 2>&1 || exit 0
 
 input=$(cat)
-path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null || true)
+
+# ── Extract tool_name AND path in ONE jq spawn (mirrors T-02-13 unit-separator pattern).
+# Unit separator (0x1f) safe for all tool/path values.
+_US=$(printf '\x1f')
+IFS="$_US" read -r tool path <<< "$(
+  printf '%s' "$input" | jq -r \
+    --arg sep "$_US" \
+    '[.tool_name // "", .tool_input.file_path // .tool_input.path // ""] | join($sep)' \
+    2>/dev/null || true
+)"
+
 [ -n "$path" ] || exit 0
 
 case "$path" in
@@ -57,6 +71,30 @@ case "$abs" in
     esac ;;
 esac
 [ "$IS_STORE_FILE" -eq 1 ] || exit 0                   # not a store write -> nothing to refresh
+
+# D-37/D-38: Read-signal arm — detect read-after-fire via live dedup mark (15-min TTL).
+# Read events MUST exit 0 here — they must NEVER fall through to the rebuild line (Pitfall 3).
+if [ "$tool" = "Read" ]; then
+  base_r=${abs##*/}
+  case "$base_r" in
+    MEMORY.md|_*)                                       # infra files — no signal
+      ;;
+    *.md)
+      stem="${base_r%.md}"
+      DD="${XDG_RUNTIME_DIR:-$HOME/.cache}/claude-memory-recall"
+      # Sanitize stem to mark namespace — identical to recall hook (D-38 correlation)
+      MARK="$DD/m_${stem//[^A-Za-z0-9._-]/_}"
+      if [ -f "$MARK" ] && [ -n "$(find "$MARK" -mmin -15 2>/dev/null)" ]; then
+        _tel="$STORE/_recall_telemetry.jsonl"
+        if [ ! -L "$_tel" ]; then                       # T-03-01: symlink hardening
+          TZ=UTC0 printf -v _rs_ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+          printf '{"ts":"%s","id":"%s","signal":"read"}\n' "$_rs_ts" "$stem" \
+            >> "$_tel" || true
+        fi
+      fi ;;
+  esac
+  exit 0                                               # Read events NEVER trigger rebuild
+fi
 
 base=${abs##*/}
 case "$base" in

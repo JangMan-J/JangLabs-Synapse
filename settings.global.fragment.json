@@ -94,6 +94,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOKS_DIR/memory-catalog-refresh.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionStart": [
