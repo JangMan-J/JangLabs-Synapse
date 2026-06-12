@@ -569,6 +569,56 @@ class TriggersSpecificityGate(TempStore):
                              f"path {broad!r} as only evidence must be denied (WR-01); "
                              f"msg: {msg!r}")
 
+    def test_broad_glob_breadth_class_denied(self):
+        """WR-03/D-10: globs broader than ~/** are denied by BREADTH, not spelling.
+
+        Set membership cannot close the class: /home/** (parent-of-home),
+        $HOME/** (unexpanded env-var spelling), and ~<user>/** (pwd-database
+        spelling) all subsume the denied ~/** and must not qualify as the sole
+        'specific' behavioral evidence.
+        """
+        import getpass
+        from pathlib import Path as _P
+        home = _P.home()
+        cases = [
+            str(home.parent) + "/**",      # e.g. /home/** — strictly broader than ~/**
+            "$HOME/**",                    # unexpanded env-var spelling of ~/**
+        ]
+        try:
+            user = getpass.getuser()
+            if str(_P("~" + user).expanduser()) == str(home):
+                cases.append("~" + user + "/**")   # ~user spelling of ~/**
+        except Exception:
+            pass                            # no pwd entry for this uid — skip the ~user case
+        for broad in cases:
+            rc, msg = ms._check_triggers(
+                {"commands": [], "paths": [broad], "args": [], "synonyms": []})
+            self.assertEqual(rc, 2,
+                             f"path {broad!r} as only evidence must be denied "
+                             f"(WR-03 breadth class); msg: {msg!r}")
+
+    def test_wildcard_rooted_above_home_denied(self):
+        """WR-03: a recursive glob whose non-wildcard ROOT is above home is broad.
+
+        /home/*/** (every user's home contents) roots at /home after stripping the
+        wildcard component — at-or-above home — so it provides no domain signal.
+        """
+        from pathlib import Path as _P
+        pat = str(_P.home().parent) + "/*/**"
+        rc, msg = ms._check_triggers(
+            {"commands": [], "paths": [pat], "args": [], "synonyms": []})
+        self.assertEqual(rc, 2,
+                         f"path {pat!r} as only evidence must be denied (WR-03); "
+                         f"msg: {msg!r}")
+
+    def test_specific_recursive_glob_below_home_passes(self):
+        """WR-03: a domain-specific recursive glob strictly below home stays specific."""
+        rc, msg = ms._check_triggers(
+            {"commands": [], "paths": ["~/.config/pipewire/**"], "args": [],
+             "synonyms": []})
+        self.assertEqual(rc, 0,
+                         f"domain-specific recursive glob must pass (WR-03); msg: {msg!r}")
+
 
 class LegacyPreservation(TempStore):
     """D-09/spec: legacy memories with NO triggers block must not be retroactively invalidated.

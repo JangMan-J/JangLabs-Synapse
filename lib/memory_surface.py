@@ -599,14 +599,35 @@ def _check_triggers(triggers):
             + TRIGGER_SCHEMA_HINT
         )
     # Specificity gate (D-10): generic-only commands with no qualifying paths/args.
-    # Compare the EXPANDED path against an EXPANDED broad set (WR-01): comparing the
-    # home-expanded form against the unexpanded BROAD_GLOBS was dead code, letting the
-    # absolute spelling of ~/** (and bare ~ / ~/) sail through as "specific".
+    # Breadth, not spelling (WR-03 iter 2): set membership cannot close the broad-glob
+    # class — /home/**, $HOME/**, and ~user/** all subsume the denied ~/**. For any
+    # recursive glob (.../**) compute its expanded non-wildcard root and treat the
+    # pattern as broad when that root sits at or above the home directory. The literal
+    # set still catches the bare * / ** / ~ / ~/ forms. Expansion is local to this
+    # gate (os.path.expandvars + expanduser, which also handles ~user) so the routing
+    # path's _expand() stays untouched.
     home = str(Path.home())
-    broad_expanded = ({_expand(g).rstrip("/") for g in BROAD_GLOBS}
+    broad_literals = ({_expand(g).rstrip("/") for g in BROAD_GLOBS}
                       | {home, "/", ""})
-    non_broad_paths = [p for p in paths
-                       if _expand(p).rstrip("/") not in broad_expanded]
+
+    def _is_broad(pat):
+        p = os.path.expanduser(os.path.expandvars(pat)).rstrip("/")
+        if p in broad_literals:
+            return True
+        if p.endswith("/**"):
+            root = p[:-3]
+            # Non-wildcard root: cut at the first wildcard char, then back to the
+            # last completed path component (so /home/*/** roots at /home).
+            for i, ch in enumerate(root):
+                if ch in "*?[":
+                    root = root[:root.rfind("/", 0, i + 1) + 1]
+                    break
+            root = root.rstrip("/") or "/"
+            if root == "/" or home == root or home.startswith(root + "/"):
+                return True
+        return False
+
+    non_broad_paths = [p for p in paths if not _is_broad(p)]
     if cmds and not args and not non_broad_paths:
         all_generic = all(c in GENERIC_VERBS for c in cmds)
         if all_generic:
