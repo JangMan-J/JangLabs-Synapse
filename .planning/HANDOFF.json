@@ -1,33 +1,30 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-12T09:47:59.757Z",
+  "timestamp": "2026-06-12T10:05:00.000Z",
   "phase": "02",
   "phase_name": "routing-index-live-recall-cutover",
   "phase_dir": ".planning/phases/02-routing-index-live-recall-cutover",
-  "plan": 2,
-  "task": 2,
+  "plan": 3,
+  "task": 7,
   "total_tasks": 12,
   "status": "paused",
   "completed_tasks": [
-    {"id": "02-01", "name": "triggerIndex compiler + routability report + CORE-08 closure (3 tasks)", "status": "done", "commit": "90b6780..37c071c", "summary": "02-01-SUMMARY.md exists; live store rebuilt: 144 memories, 0 unroutable"},
-    {"id": "02-02/T1", "name": "search_new matcher contract tests (RED)", "status": "done", "commit": "d0eac89"},
-    {"id": "02-02/T2", "name": "search_new implementation (GREEN)", "status": "in_progress", "progress": "BACKGROUND EXECUTOR WAS STILL RUNNING AT PAUSE (agent on plan 02-02; uncommitted lib/memory_surface.py edits in working tree). May have completed or died after this snapshot — RE-VERIFY on resume: check for 02-02-SUMMARY.md and new 02-02 commits."}
+    {"id": "02-01", "name": "triggerIndex compiler + routability report + CORE-08 closure (3 tasks)", "status": "done", "commit": "90b6780..37c071c", "summary": "02-01-SUMMARY.md; live store rebuilt: 144 memories, 0 unroutable"},
+    {"id": "02-02", "name": "search_new() staged matcher + tier scoring + inline evidence tuples (3 tasks)", "status": "done", "commit": "d0eac89, 0fee44a, 42739b2", "summary": "02-02-SUMMARY.md; 289/289 tests green (57 contract); live smoke: 3 fire payloads with ← tuples, silence payload empty; in-process 0.84ms p95; hooks/ byte-untouched"}
   ],
   "remaining_tasks": [
-    {"id": "02-02", "name": "Staged evidence matcher + tier scoring + inline evidence tuples (verify/finish)", "status": "in_progress"},
-    {"id": "02-03", "name": "5+5 probe runner through real hook + p95 benchmark + jq budget lever", "status": "not_started"},
-    {"id": "02-04", "name": "MVR gate demonstrations + one-commit flip + legacy prune", "status": "not_started"}
+    {"id": "02-03", "name": "Wave 3: 5+5 probe runner through real hook + p95 benchmark (≥20 samples) + jq budget lever in memory-recall.sh", "status": "not_started"},
+    {"id": "02-04", "name": "Wave 4: MVR gate demonstrations (real runs, .planning/MVR.md) + one-commit flip + legacy prune", "status": "not_started"},
+    {"id": "post", "name": "gsd-verifier → VERIFICATION.md; code review + fix; then /gsd-autonomous for phases 3-4 + lifecycle", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "Plan 02-02 executor was mid-flight at pause; working tree may hold its uncommitted lib/memory_surface.py edits", "type": "technical", "workaround": "If 02-02-SUMMARY.md absent: inspect git status/diff; either let safe_resume_gate route recovery, or reset uncommitted engine edits to the d0eac89 RED baseline and re-dispatch plan 02-02"}
-  ],
+  "blockers": [],
   "human_actions_pending": [],
   "decisions": [
     {"decision": "Smart-discuss decisions D-21..D-32 locked in 02-CONTEXT.md (index-in-catalog, choke-point rebuild, mechanical fallback, staged flip, probe-through-real-hook)", "rationale": "Operator accepted all recommended grey-area answers", "phase": "02"},
     {"decision": "Worktree isolation auto-degraded to sequential main-tree execution (#683: HEAD diverged from origin/HEAD)", "rationale": "Local commits not pushed; gsd worktree.base-check returned shouldDegrade=true", "phase": "02"},
     {"decision": "D-24 (skip FTS5) tagged [informational] in CONTEXT.md", "rationale": "Skip-decision honored by absence; decision-coverage gate requires non-trackable tag", "phase": "02"}
   ],
-  "uncommitted_files": ["lib/memory_surface.py (in-flight executor edits at pause time)"],
-  "next_action": "Run /gsd-resume-work. First verify plan 02-02 state: if 02-02-SUMMARY.md exists and commits look complete, run /gsd-execute-phase 2 (resumes at wave 3). If incomplete, follow execute-phase safe_resume_gate recovery, then /gsd-execute-phase 2. After phase 2 verification passes: gsd-code-review 2 (+ --fix --auto if findings), then /gsd-autonomous to continue phases 3-4 and lifecycle.",
-  "context_notes": "Session was an /gsd-autonomous run: Phase 2 discussed (smart discuss, 3 areas accepted), researched, planned (4 plans, checker passed iter 1), executing wave-by-wave with sonnet executors. Wave 1 (02-01) done and spot-checked against live store. Wave 2 (02-02) dispatched as background agent and still running when user invoked /gsd-pause-work. Key research flags: live p95 baseline 52-59ms vs <=50ms MVR gate (02-03 owns the jq-reduction lever); 10-11 memories need D-29b mechanical fallback (shipped in 02-01); probe runner must clear dedup marks under isolated XDG_RUNTIME_DIR. The MVR gate (.planning/MVR.md) gates the 02-04 flip - every item needs a real demonstration run, no assertions."
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-resume-work, then /gsd-execute-phase 2 — plan discovery skips 02-01/02-02 (SUMMARYs exist) and resumes at wave 3 (plan 02-03). After phase 2 verification passes: gsd-code-review 2 (+ --fix --auto if findings), then /gsd-autonomous to continue phases 3-4 and the milestone lifecycle.",
+  "context_notes": "Session was an /gsd-autonomous run: Phase 2 discussed (smart discuss, 3 areas accepted), researched, planned (4 plans, checker passed iter 1), executing wave-by-wave with sonnet executors, sequential on main tree. Waves 1-2 complete and verified (02-02 finished in background AFTER the pause was requested; handoff refreshed). Key flags for wave 3: live full-hook p95 baseline 52-59ms vs <=50ms MVR gate — 02-03 owns the jq-reduction lever in memory-recall.sh; probes/bench must run under per-run temp XDG_RUNTIME_DIR (dedup marks, 15-min TTL, would mask fires). Wave 4 flip is gated on every .planning/MVR.md item demonstrated by a real run — no assertions. Legacy search() and hooks/memory-recall.sh are still byte-untouched; new matcher reachable via `search-new` CLI subcommand or MEMORY_SURFACE_SEARCH_IMPL=new env dispatch."
 }
