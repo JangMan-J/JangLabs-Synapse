@@ -72,7 +72,7 @@ Notes: The old routing path stays live and untouched throughout this phase (no r
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — triggerIndex compiler in rebuild() + routability report + mutation-consistency closure (grammar-aware refresh hook, fingerprint fix)
+- [x] 02-01-PLAN.md — triggerIndex compiler in rebuild() + routability report + mutation-consistency closure (grammar-aware refresh hook, fingerprint fix)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -126,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Trigger Grammar & Write-Time Intelligence | 4/4 | Complete   | 2026-06-12 |
-| 2. Routing Index & Live Recall Cutover | 0/4 | Planned | - |
+| 2. Routing Index & Live Recall Cutover | 1/4 | Executing | - |
 | 3. Telemetry & Self-Curation | 0/TBD | Not started | - |
 | 4. Reorganization & Realignment | 0/TBD | Not started | - |
 

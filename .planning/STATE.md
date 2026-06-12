@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-04-PLAN.md (Phase 01 complete — ready for verification)
-last_updated: "2026-06-12T09:23:35.136Z"
-last_activity: 2026-06-12 -- Plan 01-03 complete (dedup + placement gate + write-context composite)
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-06-12T09:45:00.000Z"
+last_activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 25
+  total_plans: 8
+  completed_plans: 5
+  percent: 31
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** The right memory surfaces at the right moment with zero human curation — and the whole system stays legible and maximum-punch-per-pound while doing it.
-**Current focus:** Phase 01 — trigger-grammar-write-time-intelligence
+**Current focus:** Phase 02 — routing-index-live-recall-cutover
 
 ## Current Position
 
-Phase: 01 (trigger-grammar-write-time-intelligence) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-12 -- Plan 01-03 complete (dedup + placement gate + write-context composite)
+Phase: 02 (routing-index-live-recall-cutover) — EXECUTING
+Plan: 2 of 4
+Status: Executing Phase 02
+Last activity: 2026-06-12 -- Phase 02 Plan 01 complete (triggerIndex compiler + live routability)
 
-Progress: [█░░░░░░░░░] 6%
+Progress: [██░░░░░░░░] 31%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [█░░░░░░░░░] 6%
 | Phase 01 P02 | 9 minutes | 2 tasks | 3 files |
 | Phase 01 P03 | 7 minutes | 3 tasks | 2 files |
 | Phase 01 P04 | 25 minutes | 3 tasks | 3 files |
+| Phase 02 P01 | 10 minutes | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [01-04] Guard TYPE=grammar arm uses validate-grammar with bootstrap allowance (same pattern as taxonomy arm)
 - [Phase ?]: [01-04] Hook fixture assertions must match engine MEMORY_SURFACE_DIR behavior: placement deny names fixture store, assert 'box-placement' not '.claude/projects'
 - [Phase ?]: [01-04] Dedup backstop fires on new-file targets only — fixture allow case writes to existing file (consolidation is the intended resolution path)
+- [02-01] Mechanical fallback (D-29b) implemented as index-side entries only (byMemoryId), not frontmatter writes — keeps store-is-source/index-is-binary principle clean
+- [02-01] _review_game.py cmd_keep/cmd_later/cmd_refresh intentionally do NOT call rebuild() — they touch only review metadata, not routing inputs; CORE-08 satisfied without it
+- [02-01] Open Question 2 resolved: bare comma-tags memory parses with 2 tags via _parse_flow_tags() and routes correctly; no fix needed
 
 ### Pending Todos
 
@@ -99,6 +103,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T07:36:46.386Z
-Stopped at: Completed 01-04-PLAN.md (Phase 01 complete — ready for verification)
+Last session: 2026-06-12T09:45:00.000Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
