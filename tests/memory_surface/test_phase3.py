@@ -1376,5 +1376,526 @@ class Registration(unittest.TestCase):
         self.assertTrue(fires, "recall must fire on Context7 calls after the harness merge")
 
 
+# ---------------------------------------------------------------------------
+# Helpers shared by SeatGovernance probe and governance tests
+# ---------------------------------------------------------------------------
+
+def _make_seat_store(tmp, seats=None, with_missing=False):
+    """Build a minimal fixture store for seat-probe tests.
+
+    seats: list of (stem, triggers_block) pairs for memories that are seats.
+           triggers_block: 'command:<cmd>' | 'path:<glob>' | None (no triggers).
+    with_missing: if True, add a seat link pointing to a non-existent memory file.
+
+    Returns the store Path (tmp).
+    """
+    if seats is None:
+        seats = []
+
+    # Minimal taxonomy
+    (tmp / "_tags.md").write_text("# tags\n## domain\n- test-tag — test\n")
+    (tmp / "_tag_links.md").write_text("# tag links\n")
+    (tmp / "_grammar.md").write_text(
+        "# Unified Trigger Grammar\nVersion: v0\nStatus: test\n\n---\n\n"
+        "## domain\n\n### test-tag\ngloss: test\nplacement: either\n"
+        "commands: [probe-cmd]\npaths: []\nargs: []\nsynonyms: []\nrelated: []\n"
+    )
+
+    seat_links = []
+    for stem, trig in seats:
+        if trig and trig.startswith("command:"):
+            cmd = trig.split(":", 1)[1]
+            trig_yaml = f"  triggers:\n    commands: [{cmd}]\n    paths: []\n    args: []\n    synonyms: []\n"
+        elif trig and trig.startswith("path:"):
+            path_glob = trig.split(":", 1)[1]
+            trig_yaml = f"  triggers:\n    commands: []\n    paths: [{path_glob}]\n    args: []\n    synonyms: []\n"
+        else:
+            trig_yaml = ""  # no triggers block
+        body = (
+            f"---\nname: {stem}\ndescription: \"test {stem}\"\nmetadata:\n"
+            f"  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+            f"{trig_yaml}"
+            f"  declineCount: 0\n---\n\nbody of {stem}\n"
+        )
+        (tmp / f"{stem}.md").write_text(body)
+        seat_links.append(f"- [{stem}]({stem}.md) — always relevant test seat")
+
+    if with_missing:
+        seat_links.append("- [missing-mem](missing-mem.md) — non-existent seat memory")
+
+    memory_md = (
+        "# Memory router\n\n"
+        "## Always-relevant entries\n\n"
+        + "\n".join(seat_links) + "\n"
+    )
+    (tmp / "MEMORY.md").write_text(memory_md)
+
+    # Rebuild catalog
+    ms.rebuild(tmp)
+    return tmp
+
+
+class SeatGovernance(unittest.TestCase):
+    """Contract tests for D-47 seat probe runner (seat_probes.py) and seats() engine subcommand.
+
+    Probe half (Task 1): Tests behavior of seat_probes.py via subprocess.
+    Governance half (Task 2): Tests behavior of seats() engine function directly.
+
+    Phase advisories:
+    - PROBE-DEDUP-MASKING: per-run temp XDG_RUNTIME_DIR for all probe subprocess calls
+    - Seat exists because recall could NOT cover it; covered:false is meaningful and expected
+    - Live evidence window is insufficient today; refusal IS the correct live outcome
+    """
+
+    SEAT_PROBES = LAB / "tests" / "memory_surface" / "seat_probes.py"
+
+    def setUp(self):
+        self.store = Path(tempfile.mkdtemp())
+        self.xdg = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.store, ignore_errors=True)
+        shutil.rmtree(self.xdg, ignore_errors=True)
+
+    def _run_probes(self, store=None, extra_env=None):
+        """Run seat_probes.py against the given store; return (rc, stdout, stderr)."""
+        store_arg = str(store or self.store)
+        env = dict(os.environ, XDG_RUNTIME_DIR=str(self.xdg))
+        if extra_env:
+            env.update(extra_env)
+        p = subprocess.run(
+            [sys.executable, str(self.SEAT_PROBES), "--store", store_arg],
+            capture_output=True, text=True, env=env
+        )
+        return p.returncode, p.stdout, p.stderr
+
+    # ── Probe: fixture with command trigger → covered:true ───────────────────
+    def test_probe_command_trigger_covered(self):
+        """Seat with a command trigger that fires the hook → covered:true in results."""
+        _make_seat_store(self.store, seats=[("seat-a", "command:probe-cmd")])
+        rc, out, err = self._run_probes()
+        self.assertEqual(rc, 0, f"runner must exit 0; stderr={err!r}")
+        results_path = self.store / "_seat_probe_results.json"
+        self.assertTrue(results_path.exists(), "_seat_probe_results.json must be created")
+        data = json.loads(results_path.read_text())
+        self.assertIn("generatedTs", data, "result must have generatedTs")
+        self.assertIn("results", data, "result must have results dict")
+        seat_result = data["results"].get("seat-a")
+        self.assertIsNotNone(seat_result, "seat-a must have a result entry")
+        self.assertTrue(seat_result.get("covered"), "seat with matching command trigger must be covered:true")
+        self.assertIn("payload", seat_result, "result must include the probe payload")
+
+    # ── Probe: seat with NO triggers → covered:false / no-derivable-probe ────
+    def test_probe_no_triggers_not_covered(self):
+        """Seat memory with NO triggers: block → covered:false with reason 'no-derivable-probe'."""
+        _make_seat_store(self.store, seats=[("seat-notrig", None)])
+        rc, out, err = self._run_probes()
+        self.assertEqual(rc, 0, f"runner must exit 0; stderr={err!r}")
+        results_path = self.store / "_seat_probe_results.json"
+        data = json.loads(results_path.read_text())
+        seat_result = data["results"].get("seat-notrig")
+        self.assertIsNotNone(seat_result, "seat-notrig must have a result entry")
+        self.assertFalse(seat_result.get("covered"), "seat with no triggers must be covered:false")
+        self.assertEqual(seat_result.get("reason"), "no-derivable-probe",
+                         "reason must be 'no-derivable-probe' when triggers are absent")
+
+    # ── Probe: seat with missing memory file → covered:false / missing-memory ─
+    def test_probe_missing_memory_not_covered(self):
+        """Seat link naming a non-existent memory → covered:false with reason 'missing-memory'; runner exits 0."""
+        _make_seat_store(self.store, seats=[], with_missing=True)
+        rc, out, err = self._run_probes()
+        self.assertEqual(rc, 0, f"runner must exit 0 even for missing memory; stderr={err!r}")
+        results_path = self.store / "_seat_probe_results.json"
+        data = json.loads(results_path.read_text())
+        seat_result = data["results"].get("missing-mem")
+        self.assertIsNotNone(seat_result, "missing-mem must have a result entry")
+        self.assertFalse(seat_result.get("covered"))
+        self.assertEqual(seat_result.get("reason"), "missing-memory",
+                         "reason must be 'missing-memory' for absent seat memory file")
+
+    # ── Probe: empty store → exit 0, empty results ───────────────────────────
+    def test_probe_empty_store_exit_zero(self):
+        """Empty store (no MEMORY.md) → exit 0, empty results, no crash."""
+        empty = Path(tempfile.mkdtemp())
+        try:
+            rc, out, err = self._run_probes(store=empty)
+            self.assertEqual(rc, 0, f"must exit 0 on empty store; stderr={err!r}")
+            results_path = empty / "_seat_probe_results.json"
+            if results_path.exists():
+                data = json.loads(results_path.read_text())
+                self.assertEqual(data.get("results", {}), {}, "empty store must yield empty results")
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+
+    # ── Probe: results JSON has generatedTs + per-stem dict ──────────────────
+    def test_probe_results_json_schema(self):
+        """_seat_probe_results.json has generatedTs (ISO UTC) and results dict."""
+        _make_seat_store(self.store, seats=[("seat-b", "command:probe-cmd")])
+        rc, _, _ = self._run_probes()
+        self.assertEqual(rc, 0)
+        data = json.loads((self.store / "_seat_probe_results.json").read_text())
+        ts = data.get("generatedTs", "")
+        self.assertRegex(ts, r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}",
+                         "generatedTs must be an ISO UTC timestamp")
+        self.assertIsInstance(data.get("results"), dict)
+
+    # ── Probe: shell=False (no shell=True) ───────────────────────────────────
+    def test_probe_no_shell_true(self):
+        """seat_probes.py must not use shell=True (T-03-23: fixed argv, payload via stdin)."""
+        import subprocess as _sp
+        count_result = _sp.run(
+            ["grep", "-c", "shell=True", str(self.SEAT_PROBES)],
+            capture_output=True, text=True
+        )
+        count = int(count_result.stdout.strip() or "0")
+        self.assertEqual(count, 0, "seat_probes.py must have zero shell=True occurrences")
+
+    # ── Probe: XDG_RUNTIME_DIR env override visible in script ────────────────
+    def test_probe_xdg_runtime_dir_override(self):
+        """seat_probes.py must use per-run temp XDG_RUNTIME_DIR (PROBE-DEDUP-MASKING advisory)."""
+        import subprocess as _sp
+        r = _sp.run(
+            ["grep", "-c", "XDG_RUNTIME_DIR", str(self.SEAT_PROBES)],
+            capture_output=True, text=True
+        )
+        count = int(r.stdout.strip() or "0")
+        self.assertGreater(count, 0, "seat_probes.py must set/override XDG_RUNTIME_DIR for dedup isolation")
+
+    # ── Governance: no probe results → zero demote proposals (fail-safe) ─────
+    def test_governance_no_probe_results_no_demotions(self):
+        """seats() with no _seat_probe_results.json → 0 demote proposals; reason='no-probe-results'."""
+        _make_seat_store(self.store, seats=[("seat-g", "command:probe-cmd")])
+        # Add sufficient telemetry (but no probe sidecar)
+        ts = _now_ts()
+        tel_lines = [
+            json.dumps({"ts": ts, "qid": f"q{i}",
+                        "mems": [{"id": "seat-g", "tag": "test-tag", "type": "command", "val": "probe-cmd"}],
+                        "conf": "medium"})
+            for i in range(5)
+        ]
+        tel_lines += [json.dumps({"ts": ts, "signal": "session"}) for _ in range(12)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+        # No _seat_probe_results.json written
+
+        result = ms.seats(self.store)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result.get("demote", []), [], "no probe sidecar → zero demote proposals")
+        self.assertIn("no-probe-results", str(result.get("reason", "")),
+                      "reason must mention 'no-probe-results'")
+
+    # ── Governance: window unmet → refuse with numbers ───────────────────────
+    def test_governance_window_unmet_refusal(self):
+        """seats() with 3 sessions / 5-day span → refused; result includes session count and span."""
+        _make_seat_store(self.store, seats=[("seat-h", "command:probe-cmd")])
+        # Write probe sidecar with covered:true
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-h": {"covered": True, "payload": {"tool_name": "Bash",
+                            "tool_input": {"command": "probe-cmd --help"}, "cwd": "/tmp"},
+                           "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        # Insufficient telemetry: only 3 sessions
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(3)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-h", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        result = ms.seats(self.store)
+        self.assertEqual(result.get("demote", []), [], "window unmet → no demote proposals")
+        self.assertIn("sessions", str(result).lower(),
+                      "refusal must mention sessions in result")
+
+    # ── Governance: window met + covered + fires → DEMOTE proposal ───────────
+    def test_governance_demote_proposal_on_met_window(self):
+        """seats() with window met (>=10 sessions) + covered:true + fires → DEMOTE proposal."""
+        _make_seat_store(self.store, seats=[("seat-demote", "command:probe-cmd")])
+        # Write probe sidecar with covered:true
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-demote": {"covered": True,
+                                "payload": {"tool_name": "Bash",
+                                            "tool_input": {"command": "probe-cmd --help"},
+                                            "cwd": "/tmp"},
+                                "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        # Sufficient evidence: 10 sessions, fires for seat-demote
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-demote", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        result = ms.seats(self.store)
+        self.assertIn("seat-demote", result.get("demote", []),
+                      "window met + covered + fires → seat-demote must be in demote proposals")
+
+    # ── Governance: PROMOTE candidate (non-seat with high fire+read rate) ─────
+    def test_governance_promote_candidate(self):
+        """Non-seat memory with fire_count >= seatPromoteMinFires (5) and read_rate >= 0.4 → PROMOTE proposal."""
+        _make_seat_store(self.store, seats=[])  # no seats in MEMORY.md
+        # Add a high-fire+read non-seat memory
+        _make_memory(self.store, "hot-mem")
+        ms.rebuild(self.store)
+
+        # Write empty probe sidecar (no seats so no demote candidates)
+        probe_data = {"generatedTs": _now_ts(), "results": {}}
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        # 5 fires, 3 reads → rate=0.6 >= 0.4 promoteThreshold; fires >= seatPromoteMinFires=5
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "hot-mem", "tag": "test-tag",
+                                             "type": "command", "val": "test-cmd"}],
+                                   "conf": "high"}) for i in range(5)]
+        tel_lines += [json.dumps({"ts": ts, "id": "hot-mem", "signal": "read"}) for _ in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        result = ms.seats(self.store)
+        self.assertIn("hot-mem", result.get("promote", []),
+                      "high-fire/read non-seat memory must be in promote proposals")
+
+    # ── Governance: pending block written when proposals exist ────────────────
+    def test_pending_block_written_to_memory_md(self):
+        """seats() with DEMOTE proposal writes PENDING-SEAT-CHANGES block to MEMORY.md."""
+        _make_seat_store(self.store, seats=[("seat-p", "command:probe-cmd")])
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-p": {"covered": True,
+                            "payload": {"tool_name": "Bash",
+                                        "tool_input": {"command": "probe-cmd --help"},
+                                        "cwd": "/tmp"},
+                            "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-p", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        ms.seats(self.store)
+
+        memory_md = (self.store / "MEMORY.md").read_text()
+        self.assertIn("PENDING-SEAT-CHANGES", memory_md,
+                      "PENDING-SEAT-CHANGES block must be prepended to MEMORY.md")
+
+    # ── Governance: pending block idempotent (no stacking) ───────────────────
+    def test_pending_block_idempotency(self):
+        """Re-running seats() replaces the pending block, not stacks it."""
+        _make_seat_store(self.store, seats=[("seat-idem", "command:probe-cmd")])
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-idem": {"covered": True,
+                               "payload": {"tool_name": "Bash",
+                                           "tool_input": {"command": "probe-cmd --help"},
+                                           "cwd": "/tmp"},
+                               "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-idem", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        ms.seats(self.store)
+        ms.seats(self.store)  # second run
+
+        memory_md = (self.store / "MEMORY.md").read_text()
+        count = memory_md.count("PENDING-SEAT-CHANGES")
+        self.assertEqual(count, 1, "block must appear exactly once (idempotent replace, not stack)")
+
+    # ── Governance: no proposals → no pending block written ──────────────────
+    def test_no_proposals_no_pending_block(self):
+        """seats() with no proposals must not write a pending block."""
+        _make_seat_store(self.store, seats=[])
+        probe_data = {"generatedTs": _now_ts(), "results": {}}
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        (self.store / "_recall_telemetry.jsonl").write_text(
+            "\n".join([json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]) + "\n"
+        )
+        original_md = (self.store / "MEMORY.md").read_text()
+
+        ms.seats(self.store)
+
+        new_md = (self.store / "MEMORY.md").read_text()
+        self.assertNotIn("PENDING-SEAT-CHANGES", new_md, "no proposals → no pending block")
+
+    # ── Governance: stale pending block removed when no proposals ────────────
+    def test_stale_block_removed_when_no_proposals(self):
+        """A stale PENDING-SEAT-CHANGES block from a prior run is removed when no proposals."""
+        _make_seat_store(self.store, seats=[])
+        # Pre-write stale block
+        stale_memory = (
+            "<!-- PENDING-SEAT-CHANGES (automated, 2026-06-01) — review and delete this block to approve:\n"
+            "  DEMOTE: old-seat.md — fired 5x in window, read 0x\n"
+            "-->\n"
+            "# Memory router\n\n## Always-relevant entries\n\n"
+        )
+        (self.store / "MEMORY.md").write_text(stale_memory)
+
+        probe_data = {"generatedTs": _now_ts(), "results": {}}
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        (self.store / "_recall_telemetry.jsonl").write_text(
+            "\n".join([json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]) + "\n"
+        )
+
+        ms.seats(self.store)
+
+        new_md = (self.store / "MEMORY.md").read_text()
+        self.assertNotIn("PENDING-SEAT-CHANGES", new_md, "stale block must be removed when no proposals")
+        self.assertIn("Always-relevant entries", new_md, "router content must remain intact")
+
+    # ── Governance: router content byte-identical after block replace ─────────
+    def test_router_content_byte_identical(self):
+        """The non-block portion of MEMORY.md is byte-identical before and after seats() with proposals."""
+        _make_seat_store(self.store, seats=[("seat-bi", "command:probe-cmd")])
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-bi": {"covered": True,
+                             "payload": {"tool_name": "Bash",
+                                         "tool_input": {"command": "probe-cmd --help"},
+                                         "cwd": "/tmp"},
+                             "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-bi", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+        original_router = (self.store / "MEMORY.md").read_text()
+
+        ms.seats(self.store)
+
+        after_md = (self.store / "MEMORY.md").read_text()
+        # Strip the pending block to compare router content
+        import re as _re
+        block_pat = _re.compile(r"<!-- PENDING-SEAT-CHANGES.*?-->[\n]*", _re.DOTALL)
+        after_stripped = block_pat.sub("", after_md)
+        self.assertEqual(after_stripped, original_router,
+                         "non-block router content must be byte-identical after seats() block write")
+
+    # ── Governance: CLI 'seats' subcommand prints a seats: line ──────────────
+    def test_cli_seats_prints_seats_line(self):
+        """CLI 'seats' subcommand exits 0 and prints a 'seats: ...' line."""
+        _make_seat_store(self.store, seats=[])
+        probe_data = {"generatedTs": _now_ts(), "results": {}}
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        (self.store / "_recall_telemetry.jsonl").write_text(
+            json.dumps({"ts": _now_ts(), "signal": "session"}) + "\n"
+        )
+        env = dict(os.environ, MEMORY_SURFACE_DIR=str(self.store))
+        p = subprocess.run(
+            [sys.executable, str(LAB / "lib" / "memory_surface.py"), "seats"],
+            capture_output=True, text=True, env=env
+        )
+        self.assertEqual(p.returncode, 0, f"seats subcommand must exit 0; err={p.stderr!r}")
+        self.assertRegex(p.stdout.strip(), r"^seats:",
+                         "seats subcommand must print a line starting with 'seats:'")
+
+    # ── Governance: maintenance() non-shadow calls seats() ───────────────────
+    def test_maintenance_non_shadow_invokes_seats(self):
+        """maintenance() non-shadow runs seats() and may write a pending block."""
+        _make_seat_store(self.store, seats=[("seat-maint", "command:probe-cmd")])
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-maint": {"covered": True,
+                                "payload": {"tool_name": "Bash",
+                                            "tool_input": {"command": "probe-cmd --help"},
+                                            "cwd": "/tmp"},
+                                "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-maint", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+
+        ms.maintenance(self.store)  # non-shadow: should call seats()
+
+        memory_md = (self.store / "MEMORY.md").read_text()
+        self.assertIn("PENDING-SEAT-CHANGES", memory_md,
+                      "maintenance() non-shadow must run seats() which writes a pending block")
+
+    # ── Governance: maintenance() shadow does NOT write pending block ─────────
+    def test_maintenance_shadow_no_pending_block(self):
+        """maintenance(shadow=True) must not write any PENDING-SEAT-CHANGES block."""
+        _make_seat_store(self.store, seats=[("seat-shadow", "command:probe-cmd")])
+        probe_data = {
+            "generatedTs": _now_ts(),
+            "results": {
+                "seat-shadow": {"covered": True,
+                                 "payload": {"tool_name": "Bash",
+                                             "tool_input": {"command": "probe-cmd --help"},
+                                             "cwd": "/tmp"},
+                                 "matched": True}
+            }
+        }
+        (self.store / "_seat_probe_results.json").write_text(json.dumps(probe_data))
+        ts = _now_ts()
+        tel_lines = [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
+        tel_lines += [json.dumps({"ts": ts, "qid": f"q{i}",
+                                   "mems": [{"id": "seat-shadow", "tag": "test-tag",
+                                             "type": "command", "val": "probe-cmd"}],
+                                   "conf": "medium"}) for i in range(3)]
+        (self.store / "_recall_telemetry.jsonl").write_text("\n".join(tel_lines) + "\n")
+        original_md = (self.store / "MEMORY.md").read_text()
+
+        ms.maintenance(self.store, shadow=True)
+
+        new_md = (self.store / "MEMORY.md").read_text()
+        self.assertEqual(new_md, original_md,
+                         "maintenance shadow must not modify MEMORY.md (no pending block)")
+
+
+class Registration(unittest.TestCase):
+    def test_recall_fires_on_context7_after_merge(self):
+        import importlib.util
+        import copy
+        import re as _re
+        spec = importlib.util.spec_from_file_location("ah", str(LAB / "agent-harness.py"))
+        assert spec and spec.loader
+        ah = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ah)
+        merged = ah.merge_hooks({}, copy.deepcopy(ah.load_fragment_hooks()))
+        ctx = "mcp__plugin_context7_context7__get-library-docs"
+        fires = any(b.get("matcher") and _re.fullmatch(b["matcher"], ctx)
+                    and any("memory-recall" in h["command"] for h in b["hooks"])
+                    for b in merged["hooks"]["PreToolUse"])
+        self.assertTrue(fires, "recall must fire on Context7 calls after the harness merge")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
