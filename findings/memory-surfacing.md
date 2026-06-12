@@ -137,22 +137,25 @@ demonstrated by the bug its own absence permitted.
 
 **Resolution (2026-06-11):** all 11 store symlinks pointing into JangLabs (the 3 infra files
 plus 8 per-entry memories that had also accumulated as absolute links) were recreated as
-relative (`../../../../JangLabs/claude/memory/<f>`) via `ln -sfn`. Verified: 0 dangling,
+relative (`../../../../JangLabs/synapse/memory/<f>`) via `ln -sfn`. Verified: 0 dangling,
 `validate` clean, and a live `limine-mkinitcpio` search probe routes through the relative
 taxonomy at high confidence. The section below is kept for the original analysis.
 
 **Read this if you're working on the memory system here.** The live box-brain store does not
-hold its own taxonomy/scaffolding — it **symlinks into THIS lab**:
+hold its own taxonomy/scaffolding — it **symlinks into THIS lab** (the lab was renamed from
+`claude` to `synapse` on 2026-06-11):
 
 ```
-~/.claude/projects/-home-jangmanj/memory/_tags.md        -> /home/jangmanj/JangLabs/claude/memory/_tags.md
-~/.claude/projects/-home-jangmanj/memory/_tag_links.md   -> /home/jangmanj/JangLabs/claude/memory/_tag_links.md
-~/.claude/projects/-home-jangmanj/memory/_review_game.py -> /home/jangmanj/JangLabs/claude/memory/_review_game.py
+~/.claude/projects/-home-jangmanj/memory/_tags.md     -> ../../../../JangLabs/synapse/memory/_tags.md
+~/.claude/projects/-home-jangmanj/memory/_grammar.md  -> ../../../../JangLabs/synapse/memory/_grammar.md
 ```
 
-So this lab IS the source-of-truth for the recall taxonomy (`_tags.md`), the semantic graph
-(`_tag_links.md`), and Memory Roulette (`_review_game.py`). Confirmed `diff`-identical 2026-06-06;
-the per-entry memories (108 live) are NOT mirrored here — only these 3 infra files are shared.
+So this lab IS the source-of-truth for `_tags.md` (tag vocabulary) and `_grammar.md` (grammar
+artifact + trigger-spec schema). `_tag_links.md` remains in the store as inert legacy data (the
+write-path callers were excised in Phase 4, D-50); `_review_game.py` was deleted in Phase 4 (D-49).
+The per-entry memories are NOT mirrored here — only the lab-managed infra files are symlinked.
+**Note:** the symlink targets above use the current repo name `synapse/` (renamed 2026-06-11 from
+the old lab name `claude`). Confirmed relative links live as of 2026-06-11.
 
 **The fragility:** all three links are **absolute** (`/home/jangmanj/JangLabs/...`), which violates
 this box's portable-by-default / relative-symlink rule. If `JangLabs` is ever moved or renamed, or
@@ -162,11 +165,9 @@ the review game silently break, even though the 108 per-entry memories survive. 
 symlinks-into-the-lab — but says nothing about their being absolute.
 
 **The fix when you next touch this:** convert to relative from the store dir —
-`../../../../JangLabs/claude/memory/<f>` (both trees are under `/home/jangmanj/`, so a relative
+`../../../../JangLabs/synapse/memory/<f>` (both trees are under `/home/jangmanj/`, so a relative
 link survives a `$HOME`-internal move). Targets are unchanged, so nothing else breaks. Recreate with
-`ln -sfn` from `~/.claude/projects/-home-jangmanj/memory/`. Deferred deliberately (2026-06-06):
-the absolute links work as-is while the checkout stays at `/home/jangmanj/JangLabs` — this is a
-robustness upgrade, not a live breakage.
+`ln -sfn` from `~/.claude/projects/-home-jangmanj/memory/`. Resolved 2026-06-11 — see above.
 
 **Also note (resolved 2026-06-06):** the lab's `.gitignore` now ignores `memory/*.md` and
 un-ignores `memory/_*.md`, so the per-entry memories don't churn git while the 3 infra files
@@ -185,6 +186,10 @@ grammar rather than the implementation:
    returned zero results). Fix: slash-free patterns now also match the command basename of each
    Bash segment. The 111 passing tests missed this because they asserted what the code did, not
    what the taxonomy grammar promises — pin tests against the spec, not the implementation.
+   **[Archival annotation, Phase 4 realignment, 2026-06-12]:** Path-Tag rules (the `_tag_links.md`
+   mechanism) were retired entirely at the Phase 2 flip. `_tag_links.md` is now inert store data;
+   all write-path callers excised (D-50). This finding is preserved as history — the fix described
+   above shipped in Phase 1 and was correct for that system; the component no longer exists.
 2. **The strong-argument slot took generic verbs and dropped tag-valued args.**
    `systemctl --user restart pipewire` extracted strong `restart` (noise) and lost `pipewire`.
    Fix: a `GENERIC_VERBS` set is skipped for the first-strong-arg slot, and any non-flag arg
@@ -196,3 +201,40 @@ grammar rather than the implementation:
    contains at least one memory not surfaced within the 15-min TTL.
 
 Hostname Path-Tag matching remains unimplemented (no rule uses it; add only with a use case).
+
+## Post-reimagining reality (Phase 4 realignment, 2026-06-12)
+
+What a fresh reader must know about the system as it exists after the full four-phase build:
+
+**Routing.** Recall uses the precomputed `_memory_catalog.json` trigger-index catalog (commands,
+paths, args, synonyms compiled from each memory's `triggers:` frontmatter block). The read path
+never parses `_tags.md`, `_tag_links.md`, or any taxonomy grammar at recall time — it does a
+JSON dict lookup only. The old keyword-approach and the _tag_links.md path-tag rules are gone.
+
+**Write-time derivation.** `memory-write-context.sh` (PreToolUse) injects the `_grammar.md`
+vocabulary + trigger-spec schema at save time; the model derives the `triggers:` block in-context.
+`memory-write-guard.sh` validates tags against `_tags.md` (fail closed) and the `triggers:` block
+shape. The write hooks, not the read path, are where taxonomy enforcement lives.
+
+**Fire/read telemetry.** `memory-catalog-refresh.sh` logs a JSONL record on every catalog rebuild
+(fire) and on read-back (PostToolUse Read when the path was recently recalled). The telemetry
+powers the automated maintenance pass.
+
+**Automated maintenance pass.** `memory-base-floor.sh` (SessionStart) triggers the maintenance
+pass when the telemetry JSONL has grown by >50 records since last maintenance. The pass
+promotes high-read-rate memories, demotes/decays low-read-rate ones, and maintains a floor of
+rare-critical always-relevant entries. Memory Roulette and `_review_game.py` were retired in
+Phase 3 and deleted in Phase 4 (D-49). No human ritual; all machine-governed.
+
+**Machine-governed seats.** The engine manages a fixed count of "router seats" — top memories
+always injected regardless of evidence score. Seat governance runs on the write/rebuild path.
+
+**Recall latency.** ≤55ms p95 (recalibrated and operator-approved after Phase 4 clean-up).
+Benchmark: `tests/memory_surface/bench_recall.sh` with `gate=PASS` threshold.
+
+**Minimum-evidence guard.** A memory fires only when it meets a minimum evidence threshold
+(sessions OR calendar days window) to prevent noisy surfacing of newly-written memories.
+
+**Living spec.** `tests/memory_surface/test_routing_contract.py` is the authoritative
+behavioral specification for the trigger-index engine. Pin new behavior here, not in the
+implementation. This file is more reliable than this findings doc for implementation details.
