@@ -516,7 +516,7 @@ class MaintenancePass(unittest.TestCase):
         _make_memory(self.store, "mem-zero")
         ms.rebuild(self.store)
         # No telemetry records for mem-zero at all
-        self._write_tel([_make_tel_record("other-mem", _now_ts(), "fire")])
+        self._write_tel([_make_tel_record("other-mem", _now_ts(), "fire")] + self._evidence())
         orig_mtime = (self.store / "mem-zero.md").stat().st_mtime
 
         result = ms.maintenance(self.store)
@@ -532,10 +532,80 @@ class MaintenancePass(unittest.TestCase):
         """Zero-fire count must not raise ZeroDivisionError (D-43 guard precedes rate math)."""
         _make_memory(self.store, "mem-zero")
         ms.rebuild(self.store)
-        self._write_tel([])  # completely empty telemetry
+        self._write_tel(self._evidence())  # sessions only — no fire/read records
         # Should not raise
         result = ms.maintenance(self.store)
         self.assertIn("mem-zero", result["zero_fire"])
+
+    # ── Minimum-evidence guard: no NON-SHADOW mutations until >=10 sessions
+    #    OR >=30d observed span (premature-demotion class, caught live 2026-06-12) ──
+    def _evidence(self, n=10):
+        """n session records — satisfies the minEvidenceSessions=10 default."""
+        return [_make_tel_record("", _now_ts(), "session") for _ in range(n)]
+
+    def test_insufficient_evidence_no_mutations(self):
+        """Fires-without-reads but only 2 sessions, ~0d span -> NO demotion, flag set."""
+        _make_memory(self.store, "mem-young", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-young", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += self._evidence(n=2)
+        self._write_tel(lines)
+        orig_mtime = (self.store / "mem-young.md").stat().st_mtime
+
+        result = ms.maintenance(self.store)
+
+        self.assertTrue(result.get("insufficient_evidence"),
+                        "thin telemetry must set insufficient_evidence")
+        self.assertEqual(result["demoted"], [])
+        self.assertEqual(result["promoted"], [])
+        self.assertIn("insufficient evidence", result["summary"])
+        self.assertEqual(orig_mtime, (self.store / "mem-young.md").stat().st_mtime,
+                         "no file may be touched under insufficient evidence")
+
+    def test_evidence_by_sessions(self):
+        """10 session markers satisfy the guard even with ~0d span -> demotion proceeds."""
+        _make_memory(self.store, "mem-evs", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-evs", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += self._evidence(n=10)
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertFalse(result.get("insufficient_evidence"))
+        self.assertIn("mem-evs", result["demoted"])
+
+    def test_evidence_by_span(self):
+        """1 session but a 31-day-old record -> sufficient via span; demotion proceeds."""
+        _make_memory(self.store, "mem-span", decline=0)
+        ms.rebuild(self.store)
+        old_ts = (_dt.datetime.now(_dt.timezone.utc)
+                  - _dt.timedelta(days=31)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [_make_tel_record("", old_ts, "session")]
+        lines += [_make_tel_record("mem-span", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertFalse(result.get("insufficient_evidence"))
+        self.assertIn("mem-span", result["demoted"])
+
+    def test_shadow_computes_lists_despite_insufficient_evidence(self):
+        """Shadow mode (D-45 diagnostics) still computes would-be lists under thin
+        telemetry, but carries insufficient_evidence=True so consumers know the
+        real pass would defer."""
+        _make_memory(self.store, "mem-shadow-thin", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-shadow-thin", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store, shadow=True)
+
+        self.assertTrue(result.get("insufficient_evidence"))
+        self.assertIn("mem-shadow-thin", result["demoted"],
+                      "shadow must still compute the would-be demote list")
+        top, meta, body = ms.parse_frontmatter((self.store / "mem-shadow-thin.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "0")), "0", "shadow never writes")
 
     # ── D-41: demote when rate <= demoteThreshold (0.05) ──────────────────────
     def test_fired_never_read_demoted(self):
@@ -543,6 +613,7 @@ class MaintenancePass(unittest.TestCase):
         _make_memory(self.store, "mem-demote", decline=0)
         ms.rebuild(self.store)
         lines = [_make_tel_record("mem-demote", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        lines += self._evidence()
         self._write_tel(lines)
 
         result = ms.maintenance(self.store)
@@ -557,6 +628,7 @@ class MaintenancePass(unittest.TestCase):
         _make_memory(self.store, "mem-demote2", decline=3)
         ms.rebuild(self.store)
         lines = [_make_tel_record("mem-demote2", _now_ts(), "fire", f"_{i}") for i in range(5)]
+        lines += self._evidence()
         self._write_tel(lines)
 
         result = ms.maintenance(self.store)
@@ -573,7 +645,7 @@ class MaintenancePass(unittest.TestCase):
         ms.rebuild(self.store)
         fire_lines = [_make_tel_record("mem-promote", _now_ts(), "fire", f"_{i}") for i in range(10)]
         read_lines = [_make_tel_record("mem-promote", _now_ts(), "read") for _ in range(5)]
-        self._write_tel(fire_lines + read_lines)
+        self._write_tel(fire_lines + read_lines + self._evidence())
 
         result = ms.maintenance(self.store)
 
@@ -620,7 +692,7 @@ class MaintenancePass(unittest.TestCase):
         _make_memory(self.store, "mem-sh-zero")
         ms.rebuild(self.store)
         fire_lines = [_make_tel_record("mem-sh-demote", _now_ts(), "fire", f"_{i}") for i in range(10)]
-        self._write_tel(fire_lines)
+        self._write_tel(fire_lines + self._evidence())
 
         shadow_result = ms.maintenance(self.store, shadow=True)
         # Now run a real pass to get non-shadow lists
@@ -665,7 +737,7 @@ class MaintenancePass(unittest.TestCase):
 
         # Demote the memory
         fire_lines = [_make_tel_record("mem-trig", _now_ts(), "fire", f"_{i}") for i in range(10)]
-        self._write_tel(fire_lines)
+        self._write_tel(fire_lines + self._evidence())
         result = ms.maintenance(self.store)
 
         self.assertIn("mem-trig", result["demoted"])
@@ -716,6 +788,7 @@ class MaintenancePass(unittest.TestCase):
         _make_memory(self.store, "mem-cli")
         ms.rebuild(self.store)
         fire_lines = [_make_tel_record("mem-cli", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        fire_lines += self._evidence()
         self.tel.write_text("\n".join(fire_lines) + "\n")
 
         env = dict(os.environ, MEMORY_SURFACE_DIR=str(self.store))
@@ -820,6 +893,9 @@ def _make_fixture_store_with_telemetry(brain, n_fires=0):
                         "conf": "medium"})
             for i in range(n_fires)
         ]
+        # 10 session markers satisfy the minimum-evidence guard (>=10 sessions)
+        # so threshold-trigger tests exercise real mutations, not the deferral path.
+        lines += [json.dumps({"ts": ts, "signal": "session"}) for _ in range(10)]
         tel_path.write_text("\n".join(lines) + "\n")
 
 

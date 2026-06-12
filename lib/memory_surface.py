@@ -746,6 +746,51 @@ def _read_telemetry(tel_path, window_days):
     return fires, reads
 
 
+def _evidence_stats(tel_path):
+    """Return (session_count, span_days) across ALL telemetry records.
+
+    session_count: total {signal:"session"} SessionStart markers (03-02 Block 1).
+    span_days: days between the oldest parseable ts anywhere in the file and now.
+
+    The D-41 window caps the LOOKBACK for rate computation; this measures whether
+    enough observation exists AT ALL. Without it, the pass demotes fired-but-unread
+    memories hours after telemetry first ships — an artifact of the system's youth,
+    not evidence of memory uselessness (the premature-demotion class caught live
+    on 2026-06-12: 22 demotions from <1 day of data).
+    Fail-open: missing/unreadable file -> (0, 0.0).
+    """
+    sessions, oldest = 0, None
+    try:
+        if not tel_path.exists():
+            return 0, 0.0
+        for line in tel_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if rec.get("signal") == "session":
+                sessions += 1
+            ts_raw = rec.get("ts", "")
+            try:
+                if isinstance(ts_raw, (int, float)):
+                    ts = datetime.datetime.fromtimestamp(ts_raw, tz=datetime.timezone.utc)
+                else:
+                    ts = datetime.datetime.fromisoformat(str(ts_raw).rstrip("Z") + "+00:00")
+            except (ValueError, TypeError, OSError):
+                continue
+            if oldest is None or ts < oldest:
+                oldest = ts
+    except OSError:
+        return 0, 0.0
+    if oldest is None:
+        return sessions, 0.0
+    span = (datetime.datetime.now(datetime.timezone.utc) - oldest).total_seconds() / 86400.0
+    return sessions, max(span, 0.0)
+
+
 def _apply_score_delta(p, memdir, direction):
     """Increment or clear declineCount in frontmatter (D-42).
 
@@ -786,21 +831,40 @@ def maintenance(memdir, shadow=False):
     """Run the automated maintenance pass (D-40/D-41/D-42/D-43).
 
     shadow=True: compute promote/demote/zero_fire without writing any file (D-45).
-    Returns {promoted, demoted, zero_fire, summary} dict.
+    Returns {promoted, demoted, zero_fire, summary, insufficient_evidence} dict.
     Non-shadow prints the summary line to stdout (for memory-base-floor.sh capture).
     Wraps all internal errors to fail open — no exception propagates to the caller.
 
     D-43 rare-critical floor: memories with ZERO fires in the telemetry window are
     NEVER demoted. Only fired-but-never-read memories decay. The guard precedes all
     rate computation to avoid ZeroDivisionError.
+
+    Minimum-evidence guard: NON-SHADOW mutations require >=minEvidenceSessions
+    session markers OR >=minEvidenceDays observed span (same standard as D-47
+    seat governance). Shadow mode still computes the would-be lists for D-45
+    diagnostics but carries insufficient_evidence=True so consumers know the
+    real pass would defer.
     """
     try:
         cfg = load_config(memdir)
         promote_thresh = cfg.get("promoteThreshold", 0.4)
         demote_thresh = cfg.get("demoteThreshold", 0.05)
         window_days = cfg.get("telemetryWindowDays", 30)
+        min_sessions = cfg.get("minEvidenceSessions", 10)
+        min_days = cfg.get("minEvidenceDays", 30)
 
         tel_path = memdir / "_recall_telemetry.jsonl"
+        sessions, span_days = _evidence_stats(tel_path)
+        evidence_ok = (sessions >= min_sessions) or (span_days >= min_days)
+        if not evidence_ok and not shadow:
+            summary = (f"insufficient evidence ({sessions} sessions, "
+                       f"{span_days:.1f}d observed; mutations deferred until "
+                       f">={min_sessions} sessions or >={min_days}d)")
+            print(summary)
+            _update_maintenance_state(memdir)
+            return {"promoted": [], "demoted": [], "zero_fire": [],
+                    "summary": summary, "insufficient_evidence": True}
+
         fires, reads = _read_telemetry(tel_path, window_days)
 
         promoted, demoted, zero_fire = [], [], []
@@ -830,9 +894,11 @@ def maintenance(memdir, shadow=False):
             print(summary)
             _update_maintenance_state(memdir)
         return {"promoted": promoted, "demoted": demoted,
-                "zero_fire": zero_fire, "summary": summary}
+                "zero_fire": zero_fire, "summary": summary,
+                "insufficient_evidence": not evidence_ok}
     except Exception:  # noqa: BLE001 — fail open; engine errors must not block SessionStart
-        return {"promoted": [], "demoted": [], "zero_fire": [], "summary": "0 demoted, 0 promoted"}
+        return {"promoted": [], "demoted": [], "zero_fire": [], "summary": "0 demoted, 0 promoted",
+                "insufficient_evidence": False}
 
 
 def rebuild(memdir):
