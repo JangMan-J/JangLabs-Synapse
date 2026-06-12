@@ -1129,7 +1129,10 @@ def extract_tokens(event, active, aliases, path_tags, memdir):
             add(comp.lstrip("."), "path", "weak")
 
     if tool == "Bash":
-        for seg in re.split(r"\s*(?:;|&&|\|\||\|)\s*", ti.get("command", "") or ""):
+        # \n is a command separator in shell exactly like ';' — multiline Bash is the
+        # norm in Claude Code, so without it the 2nd..Nth commands' basenames would be
+        # swallowed as "arguments" of the first line's command (WR-03).
+        for seg in re.split(r"\s*(?:;|&&|\|\||\||\n)\s*", ti.get("command", "") or ""):
             words = [w.strip("\"'") for w in seg.split()]           # strip surrounding quotes
             saw_runner = False                                     # drop privilege/env runner + its flags
             while words:

@@ -721,6 +721,45 @@ class TestM01CommandRoutesNvidia(BaseMatcherTest):
 
 
 # ---------------------------------------------------------------------------
+# Matcher Test M01b: newline is a command separator — 'ls\nnvidia-smi' ≡ 'ls; nvidia-smi'
+# (WR-03: multiline Bash is the norm in Claude Code; the 2nd..Nth commands of a
+# multiline payload must be tokenized as commands, not as arguments of line 1)
+# ---------------------------------------------------------------------------
+
+class TestM01bNewlineIsCommandSeparator(BaseMatcherTest):
+    """Newline-separated commands route identically to semicolon-separated ones.
+
+    Without the \\n separator the whole multiline payload is one segment whose
+    basename is the first line's first word — command-token routing (the strong
+    tier) silently dies for every subsequent command.
+    """
+
+    def test_newline_separated_command_fires_like_semicolon(self):
+        """'ls\\nnvidia-smi' must produce the same results as 'ls; nvidia-smi'."""
+        ev_nl = {"tool_name": "Bash",
+                 "tool_input": {"command": "ls\nnvidia-smi"}, "cwd": "/tmp"}
+        ev_semi = {"tool_name": "Bash",
+                   "tool_input": {"command": "ls; nvidia-smi"}, "cwd": "/tmp"}
+        r_nl = ms.search(self.store, ev_nl)
+        r_semi = ms.search(self.store, ev_semi)
+        ids_semi = [r["id"] for r in r_semi["results"]]
+        self.assertGreater(len(ids_semi), 0,
+                           "control: 'ls; nvidia-smi' must surface nvidia memories")
+        self.assertEqual([r["id"] for r in r_nl["results"]], ids_semi,
+                         "'ls\\nnvidia-smi' must surface the same memories as 'ls; nvidia-smi'")
+
+    def test_newline_second_command_tokenized_as_command(self):
+        """extract_tokens must emit nvidia-smi as a command-kind token from line 2."""
+        ext = ms.extract_tokens(
+            {"tool_name": "Bash", "tool_input": {"command": "ls\nnvidia-smi"},
+             "cwd": "/tmp"},
+            set(), {}, [], self.store)
+        kinds = {(t["value"], t["kind"]) for t in ext["tokens"]}
+        self.assertIn(("nvidia-smi", "command"), kinds,
+                      "second line's command basename must be a command-kind token")
+
+
+# ---------------------------------------------------------------------------
 # Matcher Test M02: Read of ~/.claude/** path → claude-harness fires with path tuple
 # (D-25 byPath routing; D-26 evidenceTuples with trigger_type='path')
 # ---------------------------------------------------------------------------
