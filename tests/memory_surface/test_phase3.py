@@ -434,6 +434,332 @@ class Router(unittest.TestCase):
         self.assertEqual(rc, 0)                         # 10 links vs 60 memories -> not per-memory
 
 
+# ---------------------------------------------------------------------------
+# Helpers for MaintenancePass tests
+# ---------------------------------------------------------------------------
+
+import datetime as _dt
+import time as _time
+
+def _make_tel_record(stem, ts_str, record_type="fire", qid_suffix=""):
+    """Build a synthetic telemetry record string for testing.
+
+    record_type: 'fire' -> qid record; 'read' -> signal:read record; 'session' -> signal:session.
+    ts_str: ISO-8601 UTC string like '2026-06-12T10:00:00Z'.
+    """
+    if record_type == "fire":
+        qid = f"q_{stem}{qid_suffix}"
+        rec = {"ts": ts_str, "qid": qid,
+               "mems": [{"id": stem, "tag": "test", "type": "command", "val": "test-cmd"}],
+               "conf": "medium"}
+    elif record_type == "read":
+        rec = {"ts": ts_str, "id": stem, "signal": "read"}
+    else:  # session
+        rec = {"ts": ts_str, "signal": "session"}
+    return json.dumps(rec)
+
+
+def _make_memory(tmp, stem, decline=0, with_triggers=True):
+    """Write a fixture memory file with optional triggers: block."""
+    triggers_block = ""
+    if with_triggers:
+        triggers_block = "  triggers:\n    commands: [test-cmd]\n    paths: []\n    args: []\n    synonyms: []\n"
+    body = (
+        f"---\nname: {stem}\ndescription: \"about {stem}\"\nmetadata:\n"
+        f"  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+        f"{triggers_block}"
+        f"  lastReviewed: 2026-06-01\n  declineCount: {decline}\n---\n\nbody of {stem}\n"
+    )
+    (tmp / f"{stem}.md").write_text(body)
+
+
+def _now_ts():
+    """Return current UTC ISO-8601 string."""
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _old_ts(days=35):
+    """Return a UTC ISO-8601 string days ago (outside the 30-day window)."""
+    ago = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+    return ago.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class MaintenancePass(unittest.TestCase):
+    """Contract tests for D-40/D-41/D-42/D-43/D-45 automated maintenance pass.
+
+    All tests use fixture stores — nothing touches the live box-brain store.
+    """
+
+    def setUp(self):
+        self.store = Path(tempfile.mkdtemp())
+        # Minimal taxonomy so rebuild() succeeds
+        (self.store / "_tags.md").write_text(
+            "# tags\n## domain\n- test-tag — test domain\n"
+        )
+        (self.store / "_tag_links.md").write_text("# tag links\n")
+        (self.store / "_grammar.md").write_text(
+            "# Unified Trigger Grammar\nVersion: v0\nStatus: test\n\n---\n\n"
+            "## domain\n\n### test-tag\ngloss: test\nplacement: either\n"
+            "commands: [test-cmd]\npaths: []\nargs: []\nsynonyms: []\nrelated: []\n"
+        )
+        self.tel = self.store / "_recall_telemetry.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.store, ignore_errors=True)
+
+    def _write_tel(self, lines):
+        self.tel.write_text("\n".join(lines) + "\n")
+
+    # ── D-43: zero-fire floor — memories with no fires in window NEVER demoted ──
+    def test_zero_fire_floor(self):
+        """A memory with ZERO fires in the window is in zero_fire list, never demoted."""
+        _make_memory(self.store, "mem-zero")
+        ms.rebuild(self.store)
+        # No telemetry records for mem-zero at all
+        self._write_tel([_make_tel_record("other-mem", _now_ts(), "fire")])
+        orig_mtime = (self.store / "mem-zero.md").stat().st_mtime
+
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-zero", result["zero_fire"])
+        self.assertNotIn("mem-zero", result["demoted"])
+        self.assertNotIn("mem-zero", result["promoted"])
+        # File mtime must be unchanged
+        new_mtime = (self.store / "mem-zero.md").stat().st_mtime
+        self.assertEqual(orig_mtime, new_mtime, "zero-fire memory file must not be touched")
+
+    def test_zero_fire_no_zerodivision(self):
+        """Zero-fire count must not raise ZeroDivisionError (D-43 guard precedes rate math)."""
+        _make_memory(self.store, "mem-zero")
+        ms.rebuild(self.store)
+        self._write_tel([])  # completely empty telemetry
+        # Should not raise
+        result = ms.maintenance(self.store)
+        self.assertIn("mem-zero", result["zero_fire"])
+
+    # ── D-41: demote when rate <= demoteThreshold (0.05) ──────────────────────
+    def test_fired_never_read_demoted(self):
+        """Memory fired 10x, read 0x (rate 0.0 <= 0.05) -> demoted, declineCount +1."""
+        _make_memory(self.store, "mem-demote", decline=0)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-demote", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-demote", result["demoted"])
+        top, meta, body = ms.parse_frontmatter((self.store / "mem-demote.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "")), "1",
+                         "declineCount must increment from 0 to 1")
+
+    def test_decline_count_increments_by_one(self):
+        """declineCount increments exactly by 1 per pass (0->1, not reset to 0)."""
+        _make_memory(self.store, "mem-demote2", decline=3)
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("mem-demote2", _now_ts(), "fire", f"_{i}") for i in range(5)]
+        self._write_tel(lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-demote2", result["demoted"])
+        top, meta, body = ms.parse_frontmatter((self.store / "mem-demote2.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "")), "4",
+                         "declineCount must increment from 3 to 4")
+
+    # ── D-41: promote when rate >= promoteThreshold (0.4) ─────────────────────
+    def test_high_read_rate_promoted(self):
+        """Memory fired 10x, read 5x (rate 0.5 >= 0.4) -> promoted, declineCount reset to 0."""
+        _make_memory(self.store, "mem-promote", decline=2)
+        ms.rebuild(self.store)
+        fire_lines = [_make_tel_record("mem-promote", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        read_lines = [_make_tel_record("mem-promote", _now_ts(), "read") for _ in range(5)]
+        self._write_tel(fire_lines + read_lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-promote", result["promoted"])
+        top, meta, body = ms.parse_frontmatter((self.store / "mem-promote.md").read_text())
+        self.assertEqual(str(meta.get("declineCount", "")), "0",
+                         "declineCount must reset to '0' on promote")
+
+    def test_midband_rate_untouched(self):
+        """Memory fired 10x, read 2x (rate 0.2, mid-band 0.05<r<0.4) -> in no mutation set."""
+        _make_memory(self.store, "mem-mid", decline=1)
+        ms.rebuild(self.store)
+        orig_text = (self.store / "mem-mid.md").read_text()
+        fire_lines = [_make_tel_record("mem-mid", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        read_lines = [_make_tel_record("mem-mid", _now_ts(), "read") for _ in range(2)]
+        self._write_tel(fire_lines + read_lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertNotIn("mem-mid", result["demoted"])
+        self.assertNotIn("mem-mid", result["promoted"])
+        # File must be unchanged
+        self.assertEqual((self.store / "mem-mid.md").read_text(), orig_text)
+
+    # ── Rectangular-window decay: records older than telemetryWindowDays excluded ──
+    def test_old_fires_outside_window_count_as_zero_fire(self):
+        """Fires older than telemetryWindowDays (30 days) are excluded; memory is zero-fire."""
+        _make_memory(self.store, "mem-old")
+        ms.rebuild(self.store)
+        # All fires are 35 days old (outside the 30-day window)
+        old_lines = [_make_tel_record("mem-old", _old_ts(35), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(old_lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-old", result["zero_fire"],
+                      "memory with only out-of-window fires must count as zero-fire")
+        self.assertNotIn("mem-old", result["demoted"])
+
+    # ── D-45: shadow mode — reports identical lists, writes nothing ───────────
+    def test_shadow_returns_same_lists(self):
+        """shadow=True returns identical promoted/demoted/zero_fire lists as non-shadow."""
+        _make_memory(self.store, "mem-sh-demote")
+        _make_memory(self.store, "mem-sh-zero")
+        ms.rebuild(self.store)
+        fire_lines = [_make_tel_record("mem-sh-demote", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines)
+
+        shadow_result = ms.maintenance(self.store, shadow=True)
+        # Now run a real pass to get non-shadow lists
+        # (re-use the same store — shadow didn't write anything)
+        real_result = ms.maintenance(self.store)
+
+        self.assertEqual(set(shadow_result["demoted"]), set(real_result["demoted"]))
+        self.assertEqual(set(shadow_result["promoted"]), set(real_result["promoted"]))
+        self.assertEqual(set(shadow_result["zero_fire"]), set(real_result["zero_fire"]))
+
+    def test_shadow_no_file_changes(self):
+        """shadow=True must not mutate any file in the store (including _maintenance_state.json)."""
+        _make_memory(self.store, "mem-sh-nodiff", decline=0)
+        ms.rebuild(self.store)
+        fire_lines = [_make_tel_record("mem-sh-nodiff", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines)
+
+        # Snapshot all mtimes before shadow run
+        before = {p.name: p.stat().st_mtime for p in self.store.iterdir()}
+
+        ms.maintenance(self.store, shadow=True)
+
+        after = {p.name: p.stat().st_mtime for p in self.store.iterdir()}
+        # No existing file should have changed mtime
+        for name, mtime in before.items():
+            self.assertEqual(mtime, after.get(name, mtime),
+                             f"shadow mode must not modify {name}")
+        # _maintenance_state.json must not exist after shadow run
+        self.assertFalse((self.store / "_maintenance_state.json").exists(),
+                         "shadow mode must not create _maintenance_state.json")
+
+    # ── D-42: triggers: block preserved after declineCount write ──────────────
+    def test_triggers_preserved_after_demote(self):
+        """After a demote write, memory's triggers: block is byte-identical (Pitfall D)."""
+        _make_memory(self.store, "mem-trig", decline=0, with_triggers=True)
+        ms.rebuild(self.store)
+
+        # Read original triggers block
+        orig_text = (self.store / "mem-trig.md").read_text()
+        _, orig_meta, _ = ms.parse_frontmatter(orig_text)
+        orig_triggers = orig_meta.get("triggers", {})
+
+        # Demote the memory
+        fire_lines = [_make_tel_record("mem-trig", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self._write_tel(fire_lines)
+        result = ms.maintenance(self.store)
+
+        self.assertIn("mem-trig", result["demoted"])
+        new_text = (self.store / "mem-trig.md").read_text()
+        _, new_meta, _ = ms.parse_frontmatter(new_text)
+        new_triggers = new_meta.get("triggers", {})
+        self.assertEqual(orig_triggers, new_triggers,
+                         "triggers: block must be byte-identical after declineCount write")
+
+    # ── D-41: config-driven thresholds ────────────────────────────────────────
+    def test_promote_threshold_config_driven(self):
+        """Fixture config with promoteThreshold 0.9 -> rate-0.5 memory is NOT promoted."""
+        _make_memory(self.store, "mem-thresh")
+        ms.rebuild(self.store)
+        (self.store / "_memory_surface_config.json").write_text(
+            json.dumps({"promoteThreshold": 0.9})
+        )
+        fire_lines = [_make_tel_record("mem-thresh", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        read_lines = [_make_tel_record("mem-thresh", _now_ts(), "read") for _ in range(5)]
+        self._write_tel(fire_lines + read_lines)
+
+        result = ms.maintenance(self.store)
+
+        self.assertNotIn("mem-thresh", result["promoted"],
+                         "rate-0.5 memory must not be promoted when threshold is 0.9")
+
+    # ── Non-shadow pass writes _maintenance_state.json ────────────────────────
+    def test_non_shadow_writes_maintenance_state(self):
+        """Non-shadow pass writes _maintenance_state.json with lastPassLine and lastPassTs."""
+        _make_memory(self.store, "mem-state")
+        ms.rebuild(self.store)
+        lines = [_make_tel_record("other", _now_ts(), "fire")]
+        self._write_tel(lines)
+
+        ms.maintenance(self.store)
+
+        state_path = self.store / "_maintenance_state.json"
+        self.assertTrue(state_path.exists(), "_maintenance_state.json must be created after pass")
+        state = json.loads(state_path.read_text())
+        self.assertIn("lastPassLine", state)
+        self.assertIn("lastPassTs", state)
+        self.assertIsInstance(state["lastPassLine"], int)
+        self.assertGreater(state["lastPassLine"], 0)
+
+    # ── Non-shadow pass prints summary to stdout ──────────────────────────────
+    def test_cli_maintenance_prints_summary(self):
+        """CLI 'maintenance' subcommand prints 'N demoted, M promoted' to stdout."""
+        _make_memory(self.store, "mem-cli")
+        ms.rebuild(self.store)
+        fire_lines = [_make_tel_record("mem-cli", _now_ts(), "fire", f"_{i}") for i in range(10)]
+        self.tel.write_text("\n".join(fire_lines) + "\n")
+
+        env = dict(os.environ, MEMORY_SURFACE_DIR=str(self.store))
+        p = subprocess.run(
+            [sys.executable, str(LAB / "lib" / "memory_surface.py"), "maintenance"],
+            capture_output=True, text=True, env=env
+        )
+        self.assertEqual(p.returncode, 0)
+        self.assertRegex(p.stdout.strip(), r"\d+ demoted, \d+ promoted",
+                         "maintenance stdout must match 'N demoted, M promoted'")
+
+    # ── CLI maintenance-shadow prints valid JSON ──────────────────────────────
+    def test_cli_maintenance_shadow_prints_json(self):
+        """CLI 'maintenance-shadow' prints valid JSON with promoted/demoted/zero_fire keys."""
+        _make_memory(self.store, "mem-shadow-cli")
+        ms.rebuild(self.store)
+
+        env = dict(os.environ, MEMORY_SURFACE_DIR=str(self.store))
+        p = subprocess.run(
+            [sys.executable, str(LAB / "lib" / "memory_surface.py"), "maintenance-shadow"],
+            capture_output=True, text=True, env=env
+        )
+        self.assertEqual(p.returncode, 0)
+        result = json.loads(p.stdout)
+        for key in ("promoted", "demoted", "zero_fire"):
+            self.assertIn(key, result, f"shadow output must have '{key}' key")
+
+    # ── Malformed JSONL lines skipped without error ───────────────────────────
+    def test_malformed_jsonl_skipped(self):
+        """Malformed JSONL lines and session records are skipped gracefully."""
+        _make_memory(self.store, "mem-malformed")
+        ms.rebuild(self.store)
+        lines = [
+            "not valid json {{{",
+            "",
+            _make_tel_record("mem-malformed", _now_ts(), "session"),  # session record skipped
+            _make_tel_record("mem-malformed", _now_ts(), "fire"),     # valid fire
+        ]
+        self._write_tel(lines)
+        # Should not raise
+        result = ms.maintenance(self.store)
+        self.assertIsInstance(result, dict)
+
+
 class Registration(unittest.TestCase):
     def test_recall_fires_on_context7_after_merge(self):
         import importlib.util
