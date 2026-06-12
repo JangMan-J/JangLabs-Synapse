@@ -1,7 +1,8 @@
 ---
 phase: 01-trigger-grammar-write-time-intelligence
-reviewed: 2026-06-12T07:45:03Z
+reviewed: 2026-06-12T08:10:55Z
 depth: standard
+iteration: 2
 files_reviewed: 9
 files_reviewed_list:
   - hooks/memory-write-context.sh
@@ -14,215 +15,168 @@ files_reviewed_list:
   - tests/memory_surface/test_write_hooks.sh
   - tests/memory_surface/test_write_triggers.py
 findings:
-  critical: 2
-  warning: 6
-  info: 9
-  total: 17
+  critical: 0
+  warning: 3
+  info: 11
+  total: 14
 status: issues_found
 ---
 
-# Phase 01: Code Review Report
+# Phase 01: Code Review Report (iteration 2)
 
-**Reviewed:** 2026-06-12T07:45:03Z
+**Reviewed:** 2026-06-12T08:10:55Z
 **Depth:** standard
 **Files Reviewed:** 9
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 1 trigger-grammar/write-time-intelligence delivery: two PreToolUse hooks (context injector + write guard), the `memory_surface.py` engine extensions (grammar parse/validate, trigger validation, dedup, placement gate, write-context composite), the live `_grammar.md`, and four test artifacts. The full Python suite (220 tests) and the shell hook matrix (26 cases) pass.
+Re-review after the fix pass (commits c96bd1b..95743e7) for iteration 1's 2 Critical + 6 Warning findings. **All eight fixes verified empirically against live code — both prior Criticals are closed and none of the eight regressed the suites** (229 Python tests + 144 subtests, 37 shell cases, all green; rerun during this review).
 
-However, the passing suites mask two correctness defects that I reproduced empirically against the shipped code:
+Fix verification detail:
 
-1. **Box-taxonomy tag validation is applied to foreign-store writes**, directly violating the D-15 "no grammar authority over foreign stores" contract documented in the same function — any project-store memory write using a project-own tag is hard-denied.
-2. **The guard's taxonomy/grammar gate is not path-scoped** — it fires for any file named `_tags.md` / `_tag_links.md` / `_grammar.md` anywhere on disk, and validates the *box store* (not the target), producing a proven false-deny on unrelated files.
+- **CR-01 (box taxonomy applied to foreign stores)** — FIXED. `check_write()` now classifies first; probed a foreign project-store write with a tag absent from the box `_tags.md` (rc 0) and with a box-**denylisted** tag (rc 0). The bent test was rewritten with a genuinely unknown tag.
+- **CR-02 (unscoped taxonomy/grammar gate)** — FIXED. Out-of-store `_tags.md`/`_grammar.md` writes exit 0 even with a broken box taxonomy (pinned by new shell cases); in-store edits still gate.
+- **WR-01 (dead-code broad-glob set)** — FIXED for the named bypasses (`/home/<user>/**`, `~`, `~/` now denied) but the bypass *class* is only narrowed, not closed (see WR-03 below).
+- **WR-02 (dedup backstop false positives)** — FIXED for the reproduced pair (now 0.831 < 0.85); residual thin margin remains (see IN-11).
+- **WR-03 (indent-fragile triggers parser)** — FIXED; 4-space-metadata repro pinned by a new test.
+- **WR-04 (guard validated on-disk instead of proposed content)** — FIXED for the corrupting-Write direction, but the chosen implementation introduces a new false-deny/deadlock class (see WR-01 below).
+- **WR-05 (context hook discarded resolved path)** — FIXED; `--target "$abs"` passed, engine anchors relative paths to event cwd for direct callers.
+- **WR-06 (no dedup relevance floor)** — FIXED; `DEDUP_CANDIDATE_FLOOR = 0.2`, section skipped when empty.
 
-Notably, the test suites were authored *around* both defects (test comments explicitly acknowledge the workarounds), so green CI is not evidence of contract conformance here. Additional warnings cover a dead-code/bypassable broad-glob gate, dedup-backstop false-positive sensitivity, an indentation-fragile triggers parser, and the guard never validating proposed taxonomy content.
+This pass surfaces **3 new Warnings**: a repair deadlock introduced by the WR-04 fix, the still-ungated lab-side symlink path to the live taxonomy (the residue the CR-02 fix note explicitly anticipated), and residual broad-glob bypasses (`/home/**`). The 9 prior Info findings were all re-verified as still present and are carried forward; 2 new Info items added.
 
-## Critical Issues
+## Warnings
 
-### CR-01: Box-store tag validation denies legitimate foreign-store memory writes (D-15 contract violation)
+### WR-01: WR-04 fix introduces a taxonomy-repair deadlock — sibling's pre-existing errors deny valid repairing Writes, with misattributed error messages
 
-**File:** `lib/memory_surface.py:679-694` (vs. classification at `695` and the contract comment at `723-725`)
-**Issue:** In `check_write()`, the legacy tag-validation loop (malformed / denylisted / not-in-`_tags.md`) runs **before** `_classify_target()` is consulted. The non-box branch comment claims "Skip legacy tag validation and triggers requirement — no grammar authority over foreign stores. ONLY run the placement gate" — but by that point the tag check has already executed and returned. Reproduced:
-
-```
-target = /home/user/.claude/projects/-home-user-jangsjedi/memory/jangsjedi-ui-lesson.md
-tags: [jangsjedi-ui]   (a legitimate project-own tag, absent from the BOX _tags.md)
-→ _classify_target = 'project-store'
-→ check_write rc=2: "memory tag 'jangsjedi-ui' is not in _tags.md; closest active: audio..."
-```
-
-Because the D-14 widened guard now gates `*/.claude/projects/*/memory/*.md` and `*/memory/*.md`, **every other project's memory store on this machine is now subject to the box-brain taxonomy**: any full Write there using tags unknown to the box `_tags.md` is denied. This silently breaks memory writing in all non-box projects. The box denylist is likewise applied to foreign stores. The test suite admits the gap: `test_unknown_tags_wrong_store_allowed` (test_dedup_placement.py:590-626) says "this is tricky: we need tags that are in _tags.md (so tag validation passes)" and tests with a box-known tag instead of an actually-unknown one — i.e., the test was bent to fit the bug.
-**Fix:** Compute `store_class = _classify_target(target, memdir)` first, and run the `mtags` tag loop (and the top-level `tags:`/`triggers:` rejections, if desired) only when `store_class == "box"`:
-
-```python
-store_class = _classify_target(target, memdir)
-if store_class == "box":
-    for t in mtags:
-        ...  # existing malformed/denylist/unknown checks
-    ...  # triggers requirement + dedup backstop
-elif store_class in ("project-store", "repo-memory"):
-    ...  # placement gate only (as documented)
-```
-
-Add a regression test: foreign-store target + tag absent from the box `_tags.md` → rc 0.
-
-### CR-02: Guard's taxonomy/grammar gate is unscoped by path — false-denies unrelated files
-
-**File:** `hooks/memory-write-guard.sh:56-58, 88-111`
-**Issue:** The basename classification `_tags.md|_tag_links.md) TYPE=taxonomy` / `_grammar.md) TYPE=grammar` runs before — and entirely bypasses — the widened in-store detection (which only applies to `TYPE=memory`, line 66). So a Write/Edit to **any** file with one of those three names, anywhere on disk (another repo's docs, a scratch dir, a different project's own taxonomy), triggers `validate`/`validate-grammar` against the **box store**, and is denied whenever the box-store taxonomy happens to be invalid. Reproduced:
+**File:** `hooks/memory-write-guard.sh:114-130` (contrast `lib/memory_surface.py:1237-1251`)
+**Issue:** The temp-store validation (commit 24964b0) runs `validate` over the **whole staged store** (proposed file + copies of current siblings) and denies on *any* error — including errors that pre-exist in a sibling file the Write does not touch. Reproduced with both taxonomy files independently broken (`_tags.md`: active tag denylisted; `_tag_links.md`: undefined synonym canonical):
 
 ```
-box store _tags.md made invalid (active tag also denylisted)
-Write to /tmp/tmpXXXX/_tags.md (completely unrelated file)
-→ guard rc=2: "memory-write-guard: refused _tags.md edit — taxonomy invalid: active tag 'config' is denylisted..."
+Write of fully VALID _tags.md      → rc 2 "refused _tags.md write — proposed taxonomy
+                                     invalid: synonym canonical 'ghost' is not an active tag"
+Write of fully VALID _tag_links.md → rc 2 "refused _tag_links.md write — proposed taxonomy
+                                     invalid: active tag 'config' is denylisted..."
+Edit of either file                → rc 2 (on-disk check also denies)
 ```
 
-That is a false-deny on a file the harness has no authority over, in exactly the state (a half-broken box taxonomy) where the user is most likely to be editing taxonomy-adjacent files. Conversely, for a *different project's own* `_grammar.md`, the gate validates the wrong store's file, so it is also ineffective at its stated purpose for those paths.
-**Fix:** Scope the taxonomy/grammar branches to in-store paths before classifying:
+Every in-store repair path is hard-locked (escape hatches: kill-switch, or the ungated lab-side path of WR-02 — neither is a sanctioned repair flow), and each deny message attributes the **sibling's** error to the proposed file, misdirecting the self-healing retry. This contradicts the engine's own `_mutate_then_validate()` policy, whose comment reads "pre-existing unrelated errors must not block an edit" and which subtracts pre-existing errors by multiplicity before deciding.
+**Fix:** Mirror `_mutate_then_validate`: run `$vcmd` against the *current* store first, then against the temp store, and deny only when the temp run produces errors **not present** in the current run:
+
+```sh
+pre=$(python3 "$ENGINE" "$vcmd" 2>&1) || true
+errs=$(python3 "$ENGINE" "$vcmd" --memory-dir "$tmpd" 2>&1); rc=$?
+new_errs=$(grep -Fxv -f <(printf '%s\n' "$pre") <<<"$errs" || true)
+if [ "$rc" -eq 2 ] && [ -n "$new_errs" ]; then ... deny with "$new_errs" ...; fi
+```
+
+Add a shell regression: both files broken → valid repairing Write of either → rc 0.
+
+### WR-02: Live-store taxonomy backing files remain fully ungated via the lab-side path
+
+**File:** `hooks/memory-write-guard.sh:65-71`
+**Issue:** The box store's `_tags.md`/`_tag_links.md`/`_grammar.md` are **symlinks** into the lab (verified: `~/.claude/projects/-home-jangmanj/memory/_tags.md -> ../../../../JangLabs/synapse/memory/_tags.md`). The CR-02 scope fix exits 0 for any taxonomy-basename path outside `$STORE/*` — which includes `/home/jangmanj/JangLabs/synapse/memory/_tags.md`, i.e. **the actual file the live store reads**. A Write/Edit there (an ordinary lab-development action for any agent working in `synapse/`) bypasses "the only memory blocker" entirely and corrupts the live taxonomy through the symlink. The prior review's CR-02 fix note anticipated exactly this: "If writes addressed via the lab-side symlink target should also be gated, add that path explicitly rather than matching by basename globally." The fixer scoped to `$STORE/*` only.
+**Fix:** For taxonomy basenames, additionally gate when the write target is the store file's symlink destination:
 
 ```sh
 case "$base" in
   _tags.md|_tag_links.md|_grammar.md)
+    real_store_f=$(readlink -f -- "$STORE/$base" 2>/dev/null || true)
+    real_abs=$(readlink -f -- "$abs" 2>/dev/null || printf '%s' "$abs")
     case "$abs" in
-      "$STORE"/*) ;;            # in-store taxonomy -> gate below
-      *) exit 0 ;;              # out-of-store file with same name -> not ours
+      "$STORE"/*) ;;                                  # store-addressed -> gate
+      *) [ -n "$real_store_f" ] && [ "$real_abs" = "$real_store_f" ] || exit 0 ;;
     esac ;;
 esac
 ```
 
-(Note the store's taxonomy files are symlinks into the lab; the lexical `realpath -sm` canonicalization already keeps the `$STORE/*` match working for writes addressed via the store path. If writes addressed via the lab-side symlink target should also be gated, add that path explicitly rather than matching by basename globally.)
+(`readlink -f` on the existing store file is safe here — it resolves the symlink to the unique backing inode; non-existent `$abs` still compares lexically.) Add a shell case: Write to the symlink target path of the fixture store's `_tags.md` → gated.
 
-## Warnings
+### WR-03: Specificity gate still passes globs broader than the ones it denies — `/home/**` and `$HOME/**` qualify as "specific" evidence
 
-### WR-01: Broad-glob specificity gate contains dead code and is trivially bypassable
-
-**File:** `lib/memory_surface.py:580-606` (constant at `41`)
-**Issue:** In `_check_triggers`, the "expanded" comparison can never fire: `BROAD_GLOBS = {"*", "**", "/**", "~/**"}` contains only unexpanded forms, while `expanded` is the home-expanded form (`/home/<user>/**`), which is never a member of the set — so `expanded.rstrip("/") not in BROAD_GLOBS` is always true (dead code). Consequently the gate is bypassed by equally-broad paths. Reproduced — all of these pass as "specific" behavioral evidence (rc 0):
+**File:** `lib/memory_surface.py:601-627` (broad set built at 605-607)
+**Issue:** The WR-01 fix expands `BROAD_GLOBS` and adds `{home, "/", ""}`, closing the reproduced bypasses — but membership testing against a finite set still cannot catch equally-or-more-broad spellings. Reproduced (all rc 0 as the **sole** behavioral evidence):
 
 ```
-paths=['/home/jangmanj/**']  -> rc=0   (the absolute form of ~/**)
-paths=['~']                  -> rc=0   (entire home directory)
-paths=['~/']                 -> rc=0
+paths=['/home/**']        -> rc=0   (every user's home — strictly broader than ~/**, which is denied)
+paths=['$HOME/**']        -> rc=0   (unexpanded env-var spelling of the denied ~/**)
+paths=['~jangmanj/**']    -> rc=0   (~user form; _expand() handles only bare ~ and ~/)
 ```
 
-This defeats D-10's purpose: the exact mis-placement glob the gate exists to catch (`~/**`) sails through in its absolute spelling.
-**Fix:** Compare expanded path against an expanded broad set:
-
-```python
-home = str(Path.home())
-broad_expanded = {home, home + "/**", "/", "/**", "*", "**"}
-non_broad_paths = [p for p in paths
-                   if _expand(p).rstrip("/") not in broad_expanded]
-```
-
-(`_expand()` already exists at line 801.) Also consider lowercasing `cmds` before the `GENERIC_VERBS` membership test (see IN-02).
-
-### WR-02: Dedup backstop fires on non-duplicates — single-tag overlap plus stopword cosine crosses 0.85
-
-**File:** `lib/memory_surface.py:1098-1107` (threshold at `63`; check at `709-721`)
-**Issue:** `tag_overlap = |∩| / max(len(proposed_tags), 1)` is asymmetric: a single proposed tag shared with any existing memory yields 1.0, contributing the full 0.6. The bag-of-words cosine then only needs 0.625 — easily reached by stopwords ("a", "about", "on this box"). Reproduced: tags `[audio]` + description "a test memory about claude hooks" vs an existing `[audio]` memory described "existing memory about claude hooks behavior" scores **0.867 ≥ 0.85** — a deny for two memories about different things. The project's own shell test demonstrates the problem: `test_write_hooks.sh:217-220` deliberately writes the valid-triggers fixture **to the existing file** "so the dedup backstop does not fire" — i.e., there is no green-path coverage for "new box file, same tag, distinct subject → allowed" at hook level because that path false-denies. Stores with few tags (the common state) will see frequent spurious "consolidate" denials on legitimate new memories.
-**Fix:** Without touching the pinned 0.85 threshold (D-12), de-noise the inputs: strip a small stopword set before the cosine, and/or use symmetric Jaccard for tag overlap (`|∩| / |∪|`), and/or require ≥2 shared tags for the tag component to saturate. Then add the missing contract test: same single tag + distinct description → rc 0 for a new file.
-
-### WR-03: Triggers block parser hardcodes the 2-space metadata indent — swallows sibling keys at deeper indents
-
-**File:** `lib/memory_surface.py:134-160` (the `> 2` test at `147-148`)
-**Issue:** The peek-forward consumes any line indented more than 2 spaces as a triggers sub-key. With 4-space metadata children (valid YAML, non-canonical), sibling keys after `triggers:` are swallowed into the triggers dict. Reproduced:
-
-```yaml
-metadata:
-    node_type: memory
-    triggers:
-        commands: [wpctl]
-    tags: [audio]
-```
-
-parses to `triggers == {'commands': ['wpctl'], 'tags': ['audio']}` and `meta['tags'] is None` — so the memory's tags are never tag-validated, and the writer gets the misleading deny "triggers block has unknown field(s): tags" instead of guidance about indentation. Fail direction is closed (the unknown-field check catches it), but the error misdirects the self-healing retry and tag validation is skipped en route.
-**Fix:** Capture the indent of the `triggers:` line itself and consume only lines indented strictly deeper than it:
-
-```python
-trig_indent = len(raw) - len(raw.lstrip())
-...
-if len(sub) - len(sub.lstrip()) > trig_indent:
-```
-
-### WR-04: Guard never validates the proposed taxonomy/grammar content — corrupting Writes pass the only blocker
-
-**File:** `hooks/memory-write-guard.sh:88-111`
-**Issue:** For `TYPE=taxonomy`/`TYPE=grammar`, the guard validates the **current on-disk** file (pre-write). A full Write that replaces `_tags.md` or `_grammar.md` with garbage is therefore allowed by "the only memory blocker" as long as the file is currently valid — the inverse of what a write guard should check. The comment acknowledges the TOCTOU and defers to a PostToolUse refresh, but for Write events the proposed content is sitting in `.tool_input.content` (the memory branch already uses it at line 114), and the engine already supports `--content-file`/stdin validation patterns. Detection-after-corruption is strictly weaker than prevention, and depends on a hook outside this review's scope.
-**Fix:** When `.content` is present for a taxonomy/grammar target, write it to a temp dir alongside copies of the sibling taxonomy files and run `validate`/`validate-grammar` against that temp store (or add an engine subcommand that validates proposed taxonomy content directly); keep the current on-disk check for Edit/MultiEdit only.
-
-### WR-05: Context hook discards its resolved absolute path — engine re-classifies the raw event path against its own CWD
-
-**File:** `hooks/memory-write-context.sh:86` (engine side: `lib/memory_surface.py:1362-1374`, `626`)
-**Issue:** The hook carefully computes `$abs` (event `cwd` join + `realpath -sm`) for its own detection, then pipes the **original** event JSON to `write-context`. `_write_context_impl` re-derives `file_path` raw and `_classify_target` resolves relative paths via `os.path.realpath` against the *engine process's* CWD — which is the hook's execution directory, not necessarily the event's `cwd`. A relative `memory/foo.md` Write can be classified `other`/`repo-memory`/`box` inconsistently with the hook's own decision, changing which composite sections (dedup candidates, placement warning) are emitted. The guard avoids this by passing `--target "$abs"`; the context hook does not.
-**Fix:** Mirror the guard: have the hook pass the resolved path (`write-context --target "$abs"`), or have `_write_context_impl` join `event.get("cwd")` before classification.
-
-### WR-06: Write-context dedup candidates have no relevance floor — zero-similarity memories presented as consolidation targets
-
-**File:** `lib/memory_surface.py:1416-1428` (with `dedup_candidates` at `1080-1109`)
-**Issue:** `dedup_candidates()` scores and returns the top-N of **all** memories, with no minimum score; `_write_context_impl` then renders all five under "If this memory overlaps one of these, WRITE INTO that existing file (consolidate)". For any new memory whose tags/description share nothing with the store (score 0.0 across the board — e.g., when the event has no `content`, proposed tags/desc are empty), five arbitrary memories are still presented as consolidation candidates. That actively invites wrong consolidation and burns composite budget that the digest-fallback logic then has to claw back.
-**Fix:** Filter in the composite: `candidates = [(s, m) for s, m in candidates if s >= 0.2]` (or some floor well below the 0.85 backstop), and skip the section when empty — the section is already optional.
+`/home/**` is the sharpest case: the gate denies `~/**` yet accepts a glob that subsumes it. The grammar's own contract text ("Overly-broad globs alone (~/** or **) do not qualify") is about breadth, not spelling.
+**Fix:** Replace set membership with a prefix test for recursive globs: for any pattern ending in `/**`, compute the expanded non-wildcard prefix and treat it as broad when `home.startswith(prefix)` or `prefix == "/"` (i.e. the glob's root is at or above the home directory). Keep the existing set for the bare `*`/`**` forms. Optionally expand `~user/` via `os.path.expanduser` in `_expand()`.
 
 ## Info
 
-### IN-01: Duplicate `### tag` entries in `_grammar.md` silently overwrite — no validation error
+### IN-01: Duplicate `### tag` entries in `_grammar.md` silently overwrite — no validation error *(carried from iteration 1; verified still present)*
 
-**File:** `lib/memory_surface.py:321-326` (parser), `347-418` (validator)
-**Issue:** `result[active_tag] = _new_entry()` clobbers a previously parsed entry; a tag defined twice (possibly in two facets) keeps only the last definition and `validate_grammar` cannot flag it.
-**Fix:** Record duplicates during parse (e.g., a `_duplicates` list) and emit a validation error.
+**File:** `lib/memory_surface.py:347` (parser), `369-440` (validator)
+**Issue:** `result[active_tag] = _new_entry()` clobbers a previously parsed entry; a tag defined twice keeps only the last definition and `validate_grammar` cannot flag it.
+**Fix:** Record duplicates during parse and emit a validation error.
 
-### IN-02: `_check_triggers` membership tests are case-sensitive
+### IN-02: `_check_triggers` membership tests are case-sensitive *(carried; re-verified: `commands: [Restart]` → rc 0)*
 
-**File:** `lib/memory_surface.py:589-590`
-**Issue:** `all(c in GENERIC_VERBS for c in cmds)` — `commands: [Restart]` bypasses the generic-verb gate (GENERIC_VERBS is lowercase).
+**File:** `lib/memory_surface.py:611`
+**Issue:** `all(c in GENERIC_VERBS for c in cmds)` — `Restart` bypasses the generic-verb gate (set is lowercase).
 **Fix:** Lowercase command values before the membership test.
 
-### IN-03: `generate_frontmatter` drops unknown triggers sub-keys on re-emit
+### IN-03: `generate_frontmatter` drops unknown triggers sub-keys on re-emit *(carried; verified)*
 
-**File:** `lib/memory_surface.py:194-201`
-**Issue:** The triggers emitter iterates only `TRIGGER_FIELDS`; any other sub-key parsed into the dict is silently lost on regeneration — a lossy round-trip for files that bypassed write-time validation (e.g., legacy or hand-edited).
-**Fix:** Emit unrecognized sub-keys after the known ones, or assert/flag them.
+**File:** `lib/memory_surface.py:216-223`
+**Issue:** The triggers emitter iterates only `TRIGGER_FIELDS`; other sub-keys parsed into the dict are silently lost — a lossy round-trip for files that bypassed write-time validation.
+**Fix:** Emit unrecognized sub-keys after the known ones, or flag them.
 
-### IN-04: `test_phase1.py` `_mem(triggers=...)` parameter has inverted semantics
+### IN-04: `test_phase1.py` `_mem(triggers=...)` parameter has inverted semantics *(carried; verified)*
 
 **File:** `tests/memory_surface/test_phase1.py:56, 64-73`
-**Issue:** Passing any non-None `triggers` value produces **no** triggers block (`triggers_block = ""`); the supplied value is never used. No current caller passes it, but a future test doing `_mem(..., triggers={...})` silently gets the opposite of what it asked for.
-**Fix:** Either render the supplied dict or rename the parameter to `no_triggers: bool`.
+**Issue:** Any non-None `triggers` value produces **no** triggers block; the supplied value is never used.
+**Fix:** Render the supplied dict or rename to `no_triggers: bool`.
 
-### IN-05: Stale comments — `claude/` paths and "RED state" notes describe a pre-implementation world
+### IN-05: Stale comments — `claude/` paths and "RED state" notes describe a pre-implementation world *(carried; verified at updated lines)*
 
-**File:** `tests/memory_surface/test_phase1.py:7-8, 16`; `tests/memory_surface/test_write_hooks.sh:9-10, 229, 271`
-**Issue:** test_phase1 docstrings still say `claude/tests/...` (lab renamed to `synapse`), and test_write_hooks.sh asserts certain cases "MUST FAIL (RED) against the current hooks" — they now pass (26/26 green), so the comments misdescribe the suite's contract.
-**Fix:** Update the run instructions and delete/convert the RED-state notes.
+**File:** `tests/memory_surface/test_phase1.py:7-8`; `tests/memory_surface/test_write_hooks.sh:9-10, 233, 330`
+**Issue:** test_phase1 run instructions still say `claude/tests/...` (lab renamed to `synapse`); test_write_hooks.sh still asserts cases "MUST FAIL (RED)" — the suite is 37/37 green.
+**Fix:** Update the run instructions; delete/convert the RED-state notes.
 
-### IN-06: Unused variable in oversized-grammar test
+### IN-06: Unused variable in oversized-grammar test *(carried; now at line 1032 after fix-commit shifts)*
 
-**File:** `tests/memory_surface/test_dedup_placement.py:887`
+**File:** `tests/memory_surface/test_dedup_placement.py:1032`
 **Issue:** `oversized_store_dir_path = oversized_store` is assigned and never used.
 **Fix:** Delete the line.
 
-### IN-07: Engine-side kill-switch asymmetry — `write-context`/`check-write` ignore `.surface-disabled`
+### IN-07: Engine-side kill-switch asymmetry — `write-context`/`check-write` ignore `.surface-disabled` *(carried; verified — only `search()` at line 1162 checks it)*
 
-**File:** `lib/memory_surface.py:1340-1357, 1541-1547` (contrast `search()` at `1126-1128`)
-**Issue:** Only the shell hooks check the kill-switch for the write path; `search()` checks it engine-side too. Direct CLI invocation (or a future caller) of `write-context`/`check-write` bypasses the disable flag.
-**Fix:** Add the `(memdir / ".surface-disabled").exists()` short-circuit to both subcommand paths.
+**File:** `lib/memory_surface.py:1590-1616` (contrast `search()` at `1161-1162`)
+**Issue:** Only the shell hooks check the kill-switch for the write path; direct CLI invocation bypasses the disable flag.
+**Fix:** Add the `.surface-disabled` short-circuit to both subcommand paths.
 
-### IN-08: Hook canonicalizes lexically (`realpath -sm`) while the engine resolves symlinks (`os.path.realpath`)
+### IN-08: Hook canonicalizes lexically (`realpath -sm`) while the engine resolves symlinks (`os.path.realpath`) *(carried; verified — engine line 647 vs hooks lines 45-52)*
 
-**File:** `hooks/memory-write-guard.sh:43-49`, `hooks/memory-write-context.sh:42-48` vs `lib/memory_surface.py:626-630`
-**Issue:** The two layers normalize differently by design comments that contradict each other ("WITHOUT resolving symlinks" vs realpath). A symlinked target (e.g., a repo `memory/foo.md` symlinking elsewhere) can be detected by the hook but classified `other` by the engine, or vice-versa. Current fail directions are open, but the divergence is undocumented and will surprise the Phase 2 matcher.
-**Fix:** Pick one canonicalization (lexical, given the symlinked taxonomy rationale) and apply it on both sides; document the choice in `_classify_target`'s docstring.
+**File:** `hooks/memory-write-guard.sh:46-52`, `hooks/memory-write-context.sh:42-48` vs `lib/memory_surface.py:645-653`
+**Issue:** A symlinked target can be detected by the hook but classified differently by the engine, or vice-versa. Fail directions are currently open, but the divergence is undocumented and directly underlies WR-02 above.
+**Fix:** Pick one canonicalization and apply it on both sides; document it in `_classify_target`'s docstring.
 
-### IN-09: Write-context overflow fallback is a hard character slice, contradicting its own comment
+### IN-09: Write-context overflow fallback is a hard character slice, contradicting its own comment *(carried; verified at lines 1537-1539)*
 
-**File:** `lib/memory_surface.py:1488-1490`
-**Issue:** The comment promises "truncate candidate list then digest tail" but the code does `result[:WRITE_CONTEXT_BUDGET]`, which (since placement guidance is the last section) can sever the placement guidance mid-sentence — the one section the function "always" adds.
-**Fix:** Drop dedup candidate lines first, then digest lines, and only slice as a last resort; or at least slice at the previous newline.
+**File:** `lib/memory_surface.py:1537-1539`
+**Issue:** The comment promises "truncate candidate list then digest tail" but the code does `result[:WRITE_CONTEXT_BUDGET]`, which can sever the placement guidance mid-sentence.
+**Fix:** Drop dedup candidate lines first, then digest lines; or slice at the previous newline.
+
+### IN-10: Dedup backstop's new-file check does not expand `~` while classification does — tilde-addressed existing box files are treated as new
+
+**File:** `lib/memory_surface.py:734` (vs `_classify_target` expansion at `647`)
+**Issue:** `_classify_target()` runs `os.path.expanduser()` on the target, but the backstop's `Path(target).exists()` does not. A box write addressed via a `~`-relative target (reachable only by direct `check-write --target` callers — both hooks always pass absolute paths) classifies as `box` yet `exists()` is False for the literal `~...` path, so the backstop can fire on a write **into the existing duplicate file** — the exact consolidation the deny message instructs.
+**Fix:** `Path(os.path.expanduser(target)).exists()` (or expanduser the target once at the top of `check_write`).
+
+### IN-11: WR-02 fix margin is thin and identical-singleton tag sets still saturate the tag component (fixer flagged "requires human verification")
+
+**File:** `lib/memory_surface.py:1134` (Jaccard), `70-77` (stopword set), threshold at `63`
+**Issue:** Verified the canonical iteration-1 false-positive pair now scores 0.831 (allowed), but the margin is ≤0.02: Jaccard of two identical single-tag sets is still 1.0 (full 0.6), so two distinct single-tag memories whose stopword-stripped descriptions share ~⅔ of content words still cross 0.85 (probed: same tag + 4 shared content words in 6/7-word descriptions → 0.847, allowed by 0.003). The review's alternative mitigation ("require ≥2 shared tags for the tag component to saturate") was not taken — a defensible policy choice given D-12's conservative-backstop intent, but the parameters are policy and the fixer explicitly deferred them to human judgment.
+**Fix:** Human-confirm the chosen stopword set + Jaccard parameters, or additionally dampen the tag component for single-tag sets (e.g. `min(shared, 2) / 2` multiplier). No code change required if the thin margin is accepted policy.
 
 ---
 
-_Reviewed: 2026-06-12T07:45:03Z_
+_Reviewed: 2026-06-12T08:10:55Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_

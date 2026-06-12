@@ -52,6 +52,7 @@ already in `metadata.type` and the `[Rewire]`/`[Misfire]` title prefix.)
 - psd — profile-sync-daemon: ALL browser profiles on this box (~/.config/google-chrome, chromium, firefox, opera, vivaldi) are fuse-overlayfs mounts under /run/user/1000/psd/; backups in *-backup dirs, hourly psd-resync timer
 
 ## pattern  (only on [Rewire]/[Misfire] memories)
+- symptom-split-fingerprints-mechanism — when a failure is SELECTIVE (half the keys, some files, certain hosts), enumerate exactly which items fail vs pass FIRST; the partition usually uniquely identifies the responsible layer (e.g. bare printables fail while modifiers/F-keys/mod-combos pass → IME/text-input routing), turning a mystery into a lookup
 - verify-live — check the live artifact / running system, not a package name, build-file summary, or training prior
 - dont-declare-fixed-early — confirm the user's ACTUAL symptom end-to-end, not a proxy or single contributor
 - respect-user-asserted — accept the user's config facts about their own box; route around contradicting artifacts
