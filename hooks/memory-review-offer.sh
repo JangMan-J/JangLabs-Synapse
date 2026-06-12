@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# DEPRECATED (Phase 3, 2026-06-12): deregistered from settings.global.fragment.json (CUR-04/D-46).
+# File retained for Phase 4 deletion. No longer fires at UserPromptSubmit.
 # memory-review-offer.sh — UserPromptSubmit hook
 #
 # Probabilistically surfaces a Memory Roulette round when a memory file is

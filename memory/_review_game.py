@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# DEPRECATED (Phase 3, 2026-06-12): Memory Roulette retired.
+# Human curation replaced by automated telemetry-driven maintenance pass (memory_surface.py).
+# The `offer` subcommand's hook registration has been removed from settings.global.fragment.json.
+# Physical deletion of this file is deferred to Phase 4.
 """Memory Roulette — review game for keeping ~/.claude memories honest.
 
 The wheel spins behind a hook; an overdue file is offered up; the user
