@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-06-12T05:44:18.634Z",
+  "phase": "1",
+  "phase_name": "Trigger Grammar & Write-Time Intelligence",
+  "phase_dir": ".planning/phases/01-trigger-grammar-write-time-intelligence",
+  "plan": null,
+  "task": null,
+  "total_tasks": 0,
+  "status": "paused",
+  "workflow_stage": "context-gathered (discuss-phase complete; plan-phase not started)",
+  "completed_tasks": [
+    {"id": 1, "name": "plan-phase 1 initialized; paused at context gate (operator chose discuss-first)", "status": "done", "commit": null},
+    {"id": 2, "name": "discuss-phase 1 in autonomous mode — 01-CONTEXT.md with decisions D-01..D-20 + 01-DISCUSSION-LOG.md", "status": "done", "commit": "cd53a8c"},
+    {"id": 3, "name": "STATE.md session recorded (stopped at: Phase 1 context gathered)", "status": "done", "commit": "cd83cad"}
+  ],
+  "remaining_tasks": [
+    {"id": 4, "name": "plan-phase 1 with --skip-research (researcher skipped by operator directive; pattern-mapper + planner + plan-checker still spawn)", "status": "not_started"},
+    {"id": 5, "name": "execute-phase 1 (MVR.md first, then grammar + write pipeline per plans)", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "All Phase 1 implementation decisions D-01..D-20 captured in 01-CONTEXT.md (grammar artifact form/home, fail-closed trigger enforcement, two-layer dedup, graduated placement enforcement, MVR at .planning/MVR.md first, spec-first tests, walking-skeleton shape)", "rationale": "Operator delegated all decisions ('This is your project'); derived from PROJECT.md principles + research corpus + live implementation", "phase": "1"},
+    {"decision": "Skip phase-level research; planner reuses .planning/research/ corpus via CONTEXT.md canonical refs", "rationale": "Operator: research corpus from project initiation (same day) is fresh and complete; re-research would re-derive it", "phase": "1"}
+  ],
+  "uncommitted_files": [
+    {"path": "memory/_tags.md", "note": "Concurrent session added pattern tag 'symptom-split-fingerprints-mechanism' (legacy vocabulary-first rule). Unrelated to GSD phase work — left uncommitted deliberately; do not fold into planning commits. Commit separately or leave for that session."}
+  ],
+  "next_action": "/clear then /gsd-plan-phase 1 --skip-research (run from synapse/ — .planning lives there)",
+  "context_notes": "Operator posture: full autonomy delegated, Fable max effort. Plan-phase gates pre-resolved this session (do not re-derive): MVP_MODE=true (ROADMAP '**Mode:** mvp'), WALKING_SKELETON=true (phase 01, zero prior summaries — planner must emit SKELETON.md), AI-SPEC gate: no AI keywords in goal (skip), UI gate: HAS_UI=1 no frontend (skip), Nyquist disabled, security enforcement ON (ASVS L1, block on high — plans need <threat_model>), pattern_mapper enabled (PATTERNS.md absent — mapper will spawn; CONTEXT.md+no RESEARCH.md is sufficient input), intel disabled, chunked=false, granularity=coarse, models: researcher=sonnet/planner=inherit/checker=haiku, commit_docs=true, text_mode=false. Phase requirement IDs: CORE-01, CORE-02, CORE-07, ORG-04, MIG-01. Hard scope fence: old routing path (memory-recall.sh, engine search/extract_tokens routing) stays live and untouched; no index compile, no telemetry, no reorg."
+}
