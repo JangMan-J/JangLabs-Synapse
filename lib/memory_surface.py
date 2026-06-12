@@ -771,7 +771,8 @@ def _update_maintenance_state(memdir):
     tel_path = memdir / "_recall_telemetry.jsonl"
     state_path = memdir / "_maintenance_state.json"
     try:
-        cur_lines = sum(1 for _ in tel_path.open()) if tel_path.exists() else 0
+        with tel_path.open() as _f:
+            cur_lines = sum(1 for _ in _f)
     except OSError:
         cur_lines = 0
     state = {

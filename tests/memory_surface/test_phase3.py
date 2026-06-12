@@ -967,6 +967,156 @@ class BaseFloorMaintenance(unittest.TestCase):
         self.assertNotIn("Maintenance (", ctx)
 
 
+class EndToEndDemo(unittest.TestCase):
+    """Task 3: Fixture end-to-end demonstration + assertions about output shape.
+
+    These tests verify both trigger branches:
+    (A) a fixture store with 60 telemetry records -> pass triggers, demote/promote/zero-fire
+    (B) a below-threshold fixture -> no pass (honest no-op)
+
+    Test names map to the SUMMARY fixture demo section so the plan's acceptance
+    criteria are traceable.
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.brain = _make_brain(self.home)
+        self.proj = self.home / "someproj"
+        self.proj.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def _build_demo_store(self):
+        """Build a three-memory store: memA (promote), memB (demote), memC (zero-fire)."""
+        (self.brain / "_tags.md").write_text("# tags\n## domain\n- test-tag — test\n")
+        (self.brain / "_tag_links.md").write_text("# tag links\n")
+        (self.brain / "_grammar.md").write_text(
+            "# Unified Trigger Grammar\nVersion: v0\nStatus: test\n\n---\n\n"
+            "## domain\n\n### test-tag\ngloss: test\nplacement: either\n"
+            "commands: [test-cmd]\npaths: []\nargs: []\nsynonyms: []\nrelated: []\n"
+        )
+        triggers_block = "  triggers:\n    commands: [test-cmd]\n    paths: []\n    args: []\n    synonyms: []\n"
+
+        def _write_mem(stem, decline=0):
+            (self.brain / f"{stem}.md").write_text(
+                f"---\nname: {stem}\ndescription: \"test {stem}\"\nmetadata:\n"
+                f"  node_type: memory\n  type: feedback\n  tags: [test-tag]\n"
+                f"{triggers_block}"
+                f"  lastReviewed: 2026-06-01\n  declineCount: {decline}\n---\n\nbody of {stem}\n"
+            )
+
+        _write_mem("memA", decline=1)   # will be promoted
+        _write_mem("memB", decline=0)   # will be demoted
+        # memC has no telemetry at all -> zero-fire
+        _write_mem("memC", decline=0)
+        ms.rebuild(self.brain)
+
+        # Build ~62-record telemetry: 12 fires for memA (6 reads), 10 fires for memB (0 reads)
+        # Plus session/malformed records to show they're handled
+        ts = _now_ts()
+        lines = []
+        # memA: 12 fires, 6 reads -> rate 0.5 >= 0.4 -> promote
+        for i in range(12):
+            lines.append(json.dumps({"ts": ts, "qid": f"qa_{i}",
+                                     "mems": [{"id": "memA", "tag": "test-tag",
+                                               "type": "command", "val": "test-cmd"}],
+                                     "conf": "high"}))
+        for _ in range(6):
+            lines.append(json.dumps({"ts": ts, "id": "memA", "signal": "read"}))
+        # memB: 10 fires, 0 reads -> rate 0.0 <= 0.05 -> demote
+        for i in range(10):
+            lines.append(json.dumps({"ts": ts, "qid": f"qb_{i}",
+                                     "mems": [{"id": "memB", "tag": "test-tag",
+                                               "type": "command", "val": "test-cmd"}],
+                                     "conf": "medium"}))
+        # Pad to >= 50 total records (session + fire records count for threshold)
+        for i in range(34):
+            lines.append(json.dumps({"ts": ts, "signal": "session"}))
+
+        (self.brain / "_recall_telemetry.jsonl").write_text("\n".join(lines) + "\n")
+
+    def test_fixture_trigger_branch_full(self):
+        """Full fixture pass: memA promoted, memB demoted, memC zero-fire; floor has Maintenance."""
+        self._build_demo_store()
+        # Run the real hook against the fixture store
+        rc, out, err = _run_floor(
+            {"source": "startup", "cwd": str(self.proj)},
+            self.home, cwd=self.proj
+        )
+        self.assertEqual(rc, 0, f"hook must exit 0; err={err!r}")
+        self.assertEqual(err, "", "no stderr on success")
+
+        # Floor block contains Maintenance line (D-44)
+        obj = json.loads(out)
+        ctx = obj["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Maintenance (", ctx, "floor block must contain maintenance summary")
+        self.assertRegex(ctx, r"Maintenance \(\d{4}-\d{2}-\d{2}\): \d+ demoted, \d+ promoted")
+
+        # memA promoted (declineCount reset to 0)
+        _, meta_a, _ = ms.parse_frontmatter((self.brain / "memA.md").read_text())
+        self.assertEqual(str(meta_a.get("declineCount", "")), "0",
+                         "memA declineCount must be reset to 0 after promotion")
+
+        # memB demoted (declineCount 0->1)
+        _, meta_b, _ = ms.parse_frontmatter((self.brain / "memB.md").read_text())
+        self.assertEqual(str(meta_b.get("declineCount", "")), "1",
+                         "memB declineCount must be 1 after demotion")
+
+        # memC unchanged (zero-fire floor)
+        orig_memC = "  declineCount: 0"
+        memC_text = (self.brain / "memC.md").read_text()
+        self.assertIn(orig_memC, memC_text,
+                      "memC declineCount must still be 0 (zero-fire floor)")
+
+        # All triggers: blocks intact
+        for stem in ("memA", "memB", "memC"):
+            _, meta, _ = ms.parse_frontmatter((self.brain / f"{stem}.md").read_text())
+            self.assertIn("triggers", meta, f"{stem} must still have triggers: block")
+            self.assertEqual(meta["triggers"].get("commands"), ["test-cmd"],
+                             f"{stem} triggers.commands must be intact")
+
+        # _maintenance_state.json written
+        state = json.loads((self.brain / "_maintenance_state.json").read_text())
+        self.assertIn("lastPassLine", state)
+        self.assertIn("lastPassTs", state)
+
+    def test_below_threshold_honest_no_op(self):
+        """Below-threshold fixture: no pass, no state file, normal floor block."""
+        self._build_demo_store()
+        # Overwrite telemetry with only 10 records (below 50 threshold)
+        ts = _now_ts()
+        lines = [json.dumps({"ts": ts, "qid": f"q{i}",
+                             "mems": [{"id": "memB", "tag": "test-tag",
+                                       "type": "command", "val": "test-cmd"}],
+                             "conf": "low"}) for i in range(10)]
+        (self.brain / "_recall_telemetry.jsonl").write_text("\n".join(lines) + "\n")
+
+        rc, out, err = _run_floor(
+            {"source": "startup", "cwd": str(self.proj)},
+            self.home, cwd=self.proj
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+
+        # No state file (pass did not run)
+        self.assertFalse((self.brain / "_maintenance_state.json").exists(),
+                         "no state file when below threshold")
+
+        # Floor block has no Maintenance line
+        obj = json.loads(out)
+        ctx = obj["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("Maintenance (", ctx)
+
+        # memA/memB/memC unchanged (read original values from fresh rebuild)
+        # memA starts at decline=1, memB at 0, memC at 0
+        expected_declines = {"memA": "1", "memB": "0", "memC": "0"}
+        for stem, expected in expected_declines.items():
+            _, meta, _ = ms.parse_frontmatter((self.brain / f"{stem}.md").read_text())
+            self.assertEqual(str(meta.get("declineCount", "0")), expected,
+                             f"{stem} declineCount must be untouched (below threshold)")
+
+
 class Registration(unittest.TestCase):
     def test_recall_fires_on_context7_after_merge(self):
         import importlib.util
