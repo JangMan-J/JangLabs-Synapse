@@ -14,6 +14,33 @@ always meant to be the star of the show.
 The right memory surfaces at the right moment with zero human curation — and the whole
 system stays legible and maximum-punch-per-pound while doing it.
 
+## Current Milestone: v1.1 Write-Time Trigger Quality
+
+**Goal:** Make trigger quality precise and verifiable at write time — discriminating, not
+merely present — using corpus signal that exists today, with zero dependence on accrued
+recall telemetry.
+
+**Target features:**
+- `project_triggers` engine primitive — synthesize a matcher event from a proposed trigger
+  set, run it through the existing index against the live corpus, return the collision set
+  (which existing memories the triggers would co-fire and the per-trigger breadth).
+- Hardened static gate — block real-but-broad low-signal commands (bare `git`/`cat`/`ls`)
+  with no narrowing arg or specific path, the same way generic verbs are blocked today.
+- Corpus-aware block tier in `check-write` — deny when projected collisions exceed a
+  shadow-calibrated threshold (corpus-noise class).
+- Advisory collision guidance in `write_context` — name the memories a weak-but-legitimate
+  trigger set would co-fire with; the write still proceeds.
+- Shadow-calibration real-demonstration gate — corpus collision distribution + chosen
+  thresholds + "no legitimate memory trips the block tier" proof, recorded verbatim.
+
+**Key context:** Write-path only (no read-path or hook-topology changes; read p95 budget
+structurally unaffected). Two-tier enforcement: block the degenerate, guide the weak.
+Fail-open iron law on every new path. Data-safety: no corpus mutation. Reuses the existing
+matcher/index — no second matching implementation (Principle 6 legibility). The
+telemetry→trigger-refinement loop and the corpus backfill campaign are explicitly deferred
+to follow-on milestones. Design spec:
+`docs/superpowers/specs/2026-06-13-write-time-trigger-quality-design.md`.
+
 ## Why Now
 
 The project direction has drifted dramatically off course twice, and coherency is
@@ -189,4 +216,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 after v1.0 milestone*
+*Last updated: 2026-06-13 — v1.1 Write-Time Trigger Quality milestone started*
