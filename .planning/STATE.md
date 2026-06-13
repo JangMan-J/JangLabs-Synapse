@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Write-Time Trigger Quality
 status: planning
-last_updated: "2026-06-13T17:25:45.891Z"
-last_activity: 2026-06-13
+stopped_at: v1.1 roadmap created (Phases 5-8)
+last_updated: "2026-06-13T17:57:09.719Z"
+last_activity: 2026-06-13 — Roadmap for v1.1 created (4 phases, 19 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -24,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 5 — Collision Projection Engine (not started)
-Plan: —
-Status: Roadmap created — ready to plan Phase 5
-Last activity: 2026-06-13 — Roadmap for v1.1 created (4 phases, 19 requirements mapped)
+Phase: 5 — Collision Projection Engine
+Plan: 1 of 1 — COMPLETE
+Status: Phase 5 complete; ready for Phase 6 (Static Gate) or Phase 7 (Shadow Calibration)
+Last activity: 2026-06-13 — Phase 5 Plan 01 executed: project_triggers primitive + 19 contract tests
 
 ## Performance Metrics
 
@@ -66,6 +67,7 @@ Last activity: 2026-06-13 — Roadmap for v1.1 created (4 phases, 19 requirement
 | Phase 04-reorganization-realignment P01 | 18min | 2 tasks | 5 files |
 | Phase 04-reorganization-realignment P02 | 35 | 3 tasks | 8 files |
 | Phase 04 P03 | 2400 | - tasks | - files |
+| Phase 05 P01 | 25 minutes | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +79,8 @@ Recent decisions affecting current work:
 - [v1.1 roadmap] Dependency order is non-negotiable: PROJ (Phase 5) → {GATE (Phase 6) may parallel} → CAL (Phase 7) → ENF (Phase 8). Phase 7 (shadow calibration) sequences between projection and final enforcement because the ENF block threshold (ENF-01/ENF-04) is set from CAL's empirical distribution.
 - [v1.1 roadmap] Write-path only milestone: no read-path or hook-topology changes; the read path is only RE-VERIFIED (ENF-05), never modified. All work extends three existing sources of truth: `lib/memory_surface.py`, `hooks/memory-write-guard.sh`, `hooks/memory-write-context.sh`.
 - [v1.1 roadmap] Keystone is one new engine primitive `project_triggers` (Phase 5) that REUSES the existing `compile_trigger_index` / `search` machinery — no second matcher (Principle 6 legibility).
+- [05-01] _walk_index extracted from search(): one shared matcher for both search() and project_triggers() — grep-verifiable (def once, 2 call sites)
+- [05-01] project_triggers fail-open returns fresh dict literal on every path (not shallow copy of _EMPTY_PROJECTION — shallow copy allowed mutation of module constant)
 - [v1.1 roadmap] CAL (Phase 7) is a real-demonstration gate: corpus collision distribution + chosen thresholds + "no legitimate memory trips the block tier" recorded verbatim as a committed artifact. No threshold ships by assertion.
 - [v1.1 roadmap] Phase 6 (hardened static gate) is corpus-independent and may land in parallel with Phase 5 — it needs no projection.
 - [v1.1 roadmap] QC distributed to the phase whose code it tests: QC-01 (projection contract) → Phase 5; QC-02 (gate fixtures) → Phase 6; QC-03 (hook end-to-end) + QC-04 (fail-open/no-mutation/quiet/no-permissions sweep) → Phase 8.
