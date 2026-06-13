@@ -1361,13 +1361,14 @@ def _check_triggers(triggers):
 
     non_broad_paths = [p for p in paths if not _is_broad(p)]
     if cmds and not args and not non_broad_paths:
-        all_generic = all(c in GENERIC_VERBS for c in cmds)
-        if all_generic:
+        all_low_signal = all(c in (GENERIC_VERBS | LOW_SIGNAL_COMMANDS) for c in cmds)
+        if all_low_signal:
             return 2, (
-                f"triggers.commands contains only generic verbs "
+                f"triggers.commands contains only generic or low-signal commands "
                 f"({', '.join(sorted(cmds))}) with no specific args or "
-                f"domain-specific paths. Generic verbs provide no routing signal — "
-                f"add at least one domain-specific command, arg, or path.\n"
+                f"domain-specific paths. Generic and broadly-used commands provide no routing "
+                f"signal on their own — add a distinguishing arg (e.g. a subcommand or "
+                f"target) or a specific path to narrow the trigger.\n"
                 + TRIGGER_SCHEMA_HINT
             )
     # Broad-glob-only: the ONLY behavioral evidence is broad globs
@@ -1562,6 +1563,16 @@ GENERIC_TWO = {"git status", "git diff"}
 GENERIC_VERBS = {"restart", "start", "stop", "status", "enable", "disable", "reload",
                  "list", "show", "info", "help", "version", "get", "set",
                  "add", "install", "remove", "update", "upgrade"}
+# Real top-level COMMANDS that appear in a huge fraction of unrelated tool calls and
+# carry almost no routing signal on their own (distinct from GENERIC_VERBS, which are
+# subcommand/verb tokens).  A bare LOW_SIGNAL_COMMANDS entry with no narrowing arg and
+# no specific (non-broad) path is denied at write time — same as GENERIC_VERBS today.
+# Membership bar: "defensibly high-frequency/low-signal" — when in doubt, leave it OUT.
+LOW_SIGNAL_COMMANDS = {
+    "git", "cat", "ls", "cd", "cp", "mv", "rm", "mkdir", "echo",
+    "python", "python3", "bash", "sh", "grep", "find", "sed", "awk",
+    "chmod", "touch", "head", "tail",
+}
 INSTALLERS = {"pacman", "paru", "yay", "pip", "pip3", "npm", "pnpm", "yarn", "cargo", "apt"}
 UNIT_RE = re.compile(r"\.(service|socket|timer|target|mount|path|scope)$")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")    # leading VAR=val env assignment
