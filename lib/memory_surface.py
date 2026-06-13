@@ -1925,44 +1925,28 @@ def _meets_min_candidate(tuples):
     return False
 
 
-def search(memdir, event, now=None):
-    """Trigger-index matcher (Plan 02-02/02-04, D-30 flip completed).
+def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None):
+    """Shared one-pass index-walk: the single matcher used by both search() and project_triggers().
 
-    Reads ONLY the precomputed catalog (triggerIndex + recallVocab + tagToMemoryIds).
-    NEVER reads _tags.md or any store taxonomy file — catalog only.
-    NEVER calls rebuild() — missing/corrupt catalog returns _empty_response() (fail-closed).
+    Accepts:
+      tokens      — list of {value, kind, strength} dicts (from extract_tokens or direct construction)
+      abs_paths   — list of absolute path strings for byPath routing
+      index       — catalog["triggerIndex"] dict (byCommand/byArg/bySynonym/byPath/byMemoryId)
+      tag_to_mids — catalog["tagToMemoryIds"] dict (grammar_tag → [stem, ...])
+      active      — set of active grammar tag names (needed for "argument"/"tag" kind routing;
+                    pass frozenset() or None when calling from projection without recallVocab)
+      aliases     — dict of alias→canonical tag (needed for "tag" kind alias routing; pass {}
+                    or None when calling from projection)
+
+    Returns:
+      hits dict: {memory_id: [{tag, trigger_type, matched_value}, ...]}
+      WITHOUT applying _meets_min_candidate or any scoring/ranking.
     """
-    # ---- Guard prologue (copy verbatim from legacy search, D-28) ----
-    now = now or datetime.date.today()
-    cfg = load_config(memdir)
-    rmode = _response_mode(cfg)
-    if not cfg.get("enabled", True) or cfg.get("mode") == "disabled" \
-            or (memdir / ".surface-disabled").exists():
-        return _empty_response(rmode)
-    catalog = _load_catalog(memdir)
-    if catalog is None:                  # missing/corrupt catalog -> fail closed (never rebuild)
-        return _empty_response(rmode)
+    if active is None:
+        active = frozenset()
+    if aliases is None:
+        aliases = {}
 
-    # ---- Read routing tables from catalog (never from store taxonomy files) ----
-    vocab = catalog.get("recallVocab", {})
-    active = set(vocab.get("active", []))
-    aliases = vocab.get("aliases", {})
-    index = catalog.get("triggerIndex", {})
-    tag_to_mids = catalog.get("tagToMemoryIds", {})
-
-    # ---- Merge optional tierWeights config override ----
-    tw = dict(TIER_WEIGHTS)
-    config_tw = cfg.get("tierWeights")
-    if isinstance(config_tw, dict):
-        tw.update(config_tw)
-
-    # ---- Token extraction (empty path_tags — path routing now via byPath in matcher) ----
-    ext = extract_tokens(event, active, aliases, [], memdir)
-    tokens = ext["tokens"]
-    abs_paths = ext.get("paths", [])
-
-    # ---- One-pass matcher over both levels (D-25) ----
-    # hits[memory_id] = list of {tag, trigger_type, matched_value} tuples
     hits = {}
 
     def _add_hit(mid, tag, trigger_type, matched_value):
@@ -2095,6 +2079,48 @@ def search(memdir, event, now=None):
                         _add_hit(mid, _tag, "path", path_matched)
                 else:
                     _add_hit(_mid, _mid, "path", path_matched)
+
+    return hits
+
+
+def search(memdir, event, now=None):
+    """Trigger-index matcher (Plan 02-02/02-04, D-30 flip completed).
+
+    Reads ONLY the precomputed catalog (triggerIndex + recallVocab + tagToMemoryIds).
+    NEVER reads _tags.md or any store taxonomy file — catalog only.
+    NEVER calls rebuild() — missing/corrupt catalog returns _empty_response() (fail-closed).
+    """
+    # ---- Guard prologue (copy verbatim from legacy search, D-28) ----
+    now = now or datetime.date.today()
+    cfg = load_config(memdir)
+    rmode = _response_mode(cfg)
+    if not cfg.get("enabled", True) or cfg.get("mode") == "disabled" \
+            or (memdir / ".surface-disabled").exists():
+        return _empty_response(rmode)
+    catalog = _load_catalog(memdir)
+    if catalog is None:                  # missing/corrupt catalog -> fail closed (never rebuild)
+        return _empty_response(rmode)
+
+    # ---- Read routing tables from catalog (never from store taxonomy files) ----
+    vocab = catalog.get("recallVocab", {})
+    active = set(vocab.get("active", []))
+    aliases = vocab.get("aliases", {})
+    index = catalog.get("triggerIndex", {})
+    tag_to_mids = catalog.get("tagToMemoryIds", {})
+
+    # ---- Merge optional tierWeights config override ----
+    tw = dict(TIER_WEIGHTS)
+    config_tw = cfg.get("tierWeights")
+    if isinstance(config_tw, dict):
+        tw.update(config_tw)
+
+    # ---- Token extraction (empty path_tags — path routing now via byPath in matcher) ----
+    ext = extract_tokens(event, active, aliases, [], memdir)
+    tokens = ext["tokens"]
+    abs_paths = ext.get("paths", [])
+
+    # ---- One-pass matcher over both levels (D-25) ----
+    hits = _walk_index(tokens, abs_paths, index, tag_to_mids, active, aliases)
 
     # ---- Score, gate, rank ----
     all_mems = {m["id"]: m for m in catalog.get("memories", [])}
