@@ -251,6 +251,88 @@ metadata:
 body
 """
 
+# ---------------------------------------------------------------------------
+# Phase 06-01 GATE fixtures — LOW_SIGNAL_COMMANDS deny/pass contract (D-06, QC-02)
+# ---------------------------------------------------------------------------
+
+# Bare low-signal command (git) with no arg, no path → DENY (GATE-01/D-06).
+# Today (before Task 2) this PASSES because `git` is not in GENERIC_VERBS.
+# This test is RED until Task 2 adds LOW_SIGNAL_COMMANDS + broadened predicate.
+CONTENT_TRIGGERS_BARE_GIT = """\
+---
+name: bare-git-memory
+description: "triggers with only a bare git command — no arg, no path"
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [git]
+  triggers:
+    commands: [git]
+    paths: []
+    args: []
+    synonyms: []
+---
+
+body
+"""
+
+# Low-signal command + narrowing arg → PASS (GATE-02/D-03/D-06).
+CONTENT_TRIGGERS_GIT_PLUS_ARG = """\
+---
+name: git-with-arg
+description: "git commit workflow — narrowed by arg"
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [git]
+  triggers:
+    commands: [git]
+    paths: []
+    args: [commit]
+    synonyms: []
+---
+
+body
+"""
+
+# Low-signal command + specific non-broad path → PASS (GATE-02/D-03).
+CONTENT_TRIGGERS_GIT_PLUS_PATH = """\
+---
+name: git-with-specific-path
+description: "git config for a specific project path"
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [git]
+  triggers:
+    commands: [git]
+    paths: ["~/.config/foo/**"]
+    args: []
+    synonyms: []
+---
+
+body
+"""
+
+# Multiple low-signal commands (cat + ls) with no arg/path → DENY; message names both.
+CONTENT_TRIGGERS_MULTI_LOW_SIGNAL = """\
+---
+name: multi-low-signal
+description: "triggers using only cat and ls — no arg, no path"
+metadata:
+  node_type: memory
+  type: feedback
+  tags: [audio]
+  triggers:
+    commands: [cat, ls]
+    paths: []
+    args: []
+    synonyms: []
+---
+
+body
+"""
+
 # A legacy memory with NO triggers block (for rebuild() preservation test).
 LEGACY_MEMORY_NO_TRIGGERS = """\
 ---
@@ -618,6 +700,119 @@ class TriggersSpecificityGate(TempStore):
              "synonyms": []})
         self.assertEqual(rc, 0,
                          f"domain-specific recursive glob must pass (WR-03); msg: {msg!r}")
+
+
+class LowSignalCommandGate(TempStore):
+    """Phase 06-01 GATE-01/GATE-02/GATE-03/QC-02: LOW_SIGNAL_COMMANDS vocabulary set +
+    broadened specificity-gate deny predicate.
+
+    Fixtures drive check_write (box-store) for deny/allow tests and _check_triggers
+    directly for vocabulary-shape assertions (matching the WR-01/WR-03 pattern above).
+    """
+
+    # --- GATE-03 / D-05: vocabulary in one named place, disjoint from GENERIC_VERBS ---
+
+    def test_low_signal_commands_constant_exists(self):
+        """GATE-03/D-05: LOW_SIGNAL_COMMANDS must exist as a module-level set."""
+        self.assertTrue(
+            hasattr(ms, "LOW_SIGNAL_COMMANDS"),
+            "ms.LOW_SIGNAL_COMMANDS must exist as a module-level set (GATE-03)"
+        )
+
+    def test_low_signal_commands_contains_git(self):
+        """GATE-03/D-01: 'git' must be in LOW_SIGNAL_COMMANDS (the motivating case)."""
+        self.assertIn(
+            "git", ms.LOW_SIGNAL_COMMANDS,
+            "'git' must be in LOW_SIGNAL_COMMANDS (D-01 seed)"
+        )
+
+    def test_low_signal_commands_disjoint_from_generic_verbs(self):
+        """GATE-03/D-05: LOW_SIGNAL_COMMANDS and GENERIC_VERBS must be disjoint sets —
+        they model different things (real top-level commands vs subcommand verbs)."""
+        self.assertTrue(
+            ms.LOW_SIGNAL_COMMANDS.isdisjoint(ms.GENERIC_VERBS),
+            "LOW_SIGNAL_COMMANDS and GENERIC_VERBS must be disjoint (D-05)"
+        )
+
+    # --- GATE-01 / D-06: bare low-signal-command-only trigger set → DENY ---
+
+    def test_bare_git_only_denied(self):
+        """GATE-01/D-06: triggers:{commands:[git]} with no arg and no path is DENIED (rc 2).
+
+        This is the motivating noise case: a bare 'git' command in triggers provides
+        no routing signal — it fires on every git operation regardless of domain.
+        """
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_BARE_GIT)
+        self.assertEqual(rc, 2,
+                         f"bare 'git' trigger (no arg, no path) must be denied (GATE-01); "
+                         f"msg: {msg!r}")
+
+    def test_bare_git_deny_message_names_git(self):
+        """GATE-01/D-06: the deny message for bare-git must name the offending command 'git'."""
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_BARE_GIT)
+        self.assertEqual(rc, 2)
+        self.assertIn("git", msg,
+                      f"deny message must name 'git'; got: {msg!r}")
+
+    def test_multi_low_signal_denied(self):
+        """GATE-01: triggers:{commands:[cat,ls]} with no arg/path is DENIED (rc 2)."""
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_MULTI_LOW_SIGNAL)
+        self.assertEqual(rc, 2,
+                         f"bare [cat, ls] triggers (no arg, no path) must be denied; "
+                         f"msg: {msg!r}")
+
+    def test_multi_low_signal_deny_message_names_commands(self):
+        """GATE-01: the deny message for multi-low-signal must name the offending commands."""
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_MULTI_LOW_SIGNAL)
+        self.assertEqual(rc, 2)
+        # Both offending commands must be named
+        self.assertIn("cat", msg,
+                      f"deny message must name 'cat'; got: {msg!r}")
+        self.assertIn("ls", msg,
+                      f"deny message must name 'ls'; got: {msg!r}")
+
+    # --- GATE-02 / D-03: low-signal + narrowing arg or specific path → PASS ---
+
+    def test_git_plus_arg_passes(self):
+        """GATE-02/D-03/D-06: triggers:{commands:[git],args:[commit]} passes (rc 0).
+
+        A narrowing arg rescues the low-signal command — the memory is about git-commit
+        operations, not git in general.
+        """
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_GIT_PLUS_ARG)
+        self.assertEqual(rc, 0,
+                         f"git+commit arg must pass the specificity gate (GATE-02); "
+                         f"msg: {msg!r}")
+
+    def test_git_plus_specific_path_passes(self):
+        """GATE-02/D-03: triggers:{commands:[git],paths:['~/.config/foo/**']} passes (rc 0).
+
+        A specific (non-broad) path rescues the low-signal command.
+        """
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_GIT_PLUS_PATH)
+        self.assertEqual(rc, 0,
+                         f"git + specific path must pass the specificity gate (GATE-02); "
+                         f"msg: {msg!r}")
+
+    # --- QC-02: existing deny arms still fire (D-04 additive regression guards) ---
+
+    def test_generic_verb_only_still_denied(self):
+        """QC-02/D-04: the existing generic-verb-only deny arm still fires after the
+        LOW_SIGNAL_COMMANDS extension (additive — existing tests must stay green)."""
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_GENERIC_ONLY)
+        self.assertEqual(rc, 2,
+                         f"generic-verb-only deny arm must still fire (QC-02 regression guard); "
+                         f"msg: {msg!r}")
+        self.assertIn("generic", msg.lower(),
+                      f"deny message must still mention 'generic' (QC-02); got: {msg!r}")
+
+    def test_broad_glob_only_still_denied(self):
+        """QC-02/D-04: the existing broad-glob-only deny arm still fires after the
+        LOW_SIGNAL_COMMANDS extension (additive — existing tests must stay green)."""
+        rc, msg = ms.check_write(self.store, CONTENT_TRIGGERS_BROAD_GLOB_ONLY)
+        self.assertEqual(rc, 2,
+                         f"broad-glob-only deny arm must still fire (QC-02 regression guard); "
+                         f"msg: {msg!r}")
 
 
 class LegacyPreservation(TempStore):
