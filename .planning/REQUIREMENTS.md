@@ -124,31 +124,31 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROJ-01 | TBD | Pending |
-| PROJ-02 | TBD | Pending |
-| PROJ-03 | TBD | Pending |
-| PROJ-04 | TBD | Pending |
-| GATE-01 | TBD | Pending |
-| GATE-02 | TBD | Pending |
-| GATE-03 | TBD | Pending |
-| ENF-01 | TBD | Pending |
-| ENF-02 | TBD | Pending |
-| ENF-03 | TBD | Pending |
-| ENF-04 | TBD | Pending |
-| ENF-05 | TBD | Pending |
-| CAL-01 | TBD | Pending |
-| CAL-02 | TBD | Pending |
-| CAL-03 | TBD | Pending |
-| QC-01 | TBD | Pending |
-| QC-02 | TBD | Pending |
-| QC-03 | TBD | Pending |
-| QC-04 | TBD | Pending |
+| PROJ-01 | Phase 5 | Pending |
+| PROJ-02 | Phase 5 | Pending |
+| PROJ-03 | Phase 5 | Pending |
+| PROJ-04 | Phase 5 | Pending |
+| GATE-01 | Phase 6 | Pending |
+| GATE-02 | Phase 6 | Pending |
+| GATE-03 | Phase 6 | Pending |
+| ENF-01 | Phase 8 | Pending |
+| ENF-02 | Phase 8 | Pending |
+| ENF-03 | Phase 8 | Pending |
+| ENF-04 | Phase 8 | Pending |
+| ENF-05 | Phase 8 | Pending |
+| CAL-01 | Phase 7 | Pending |
+| CAL-02 | Phase 7 | Pending |
+| CAL-03 | Phase 7 | Pending |
+| QC-01 | Phase 5 | Pending |
+| QC-02 | Phase 6 | Pending |
+| QC-03 | Phase 8 | Pending |
+| QC-04 | Phase 8 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 19 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 19 ⚠️ (filled by roadmapper)
+- Mapped to phases: 19 ✓ (Phase 5: PROJ-01..04, QC-01 · Phase 6: GATE-01..03, QC-02 · Phase 7: CAL-01..03 · Phase 8: ENF-01..05, QC-03, QC-04)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-13*
-*Last updated: 2026-06-13 at milestone v1.1 start*
+*Last updated: 2026-06-13 — roadmap created (Phases 5-8 mapped)*
