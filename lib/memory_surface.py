@@ -2198,7 +2198,8 @@ def project_triggers(memdir, triggers, stem=None):
     try:
         return _project_triggers_impl(memdir, triggers, stem)
     except Exception:
-        return dict(_EMPTY_PROJECTION)
+        # Return a fresh copy so callers cannot mutate the module constant (D-06).
+        return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
 
 
 def _project_triggers_impl(memdir, triggers, stem=None):
@@ -2219,7 +2220,8 @@ def _project_triggers_impl(memdir, triggers, stem=None):
     # ---- Load catalog; missing/corrupt is a normal condition (D-03) ----
     catalog = _load_catalog(memdir)
     if catalog is None:
-        return dict(_EMPTY_PROJECTION)
+        # Missing/corrupt catalog is a normal condition (D-03).
+        return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
 
     index = catalog.get("triggerIndex", {})
     tag_to_mids = catalog.get("tagToMemoryIds", {})
