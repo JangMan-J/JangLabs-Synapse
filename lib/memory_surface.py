@@ -1575,6 +1575,18 @@ GENERIC_VERBS = {"restart", "start", "stop", "status", "enable", "disable", "rel
 # subcommand/verb tokens).  A bare LOW_SIGNAL_COMMANDS entry with no narrowing arg and
 # no specific (non-broad) path is denied at write time — same as GENERIC_VERBS today.
 # Membership bar: "defensibly high-frequency/low-signal" — when in doubt, leave it OUT.
+#
+# Two membership tiers (WR-01), both denied here at the STATIC tier:
+#   Tier A — unambiguous: {awk, cat, cd, find, grep, head, ls, sed, tail} are ALSO in
+#     GENERIC_BASH, so the read path strips them as *no-signal* before any routing — a
+#     bare trigger on one routes nothing, so denying it is fully consistent.
+#   Tier B — broadly-used-but-weakly-signalling: {git, python, python3, bash, sh, cp, mv,
+#     rm, mkdir, echo, chmod, touch} are NOT in GENERIC_BASH; the read path emits a WEAK
+#     "command" signal for them. Denying them bare is a deliberate noise-reduction
+#     tradeoff, made corpus-accountable in Phase 7 CAL-03: the calibration pass validates
+#     against THIS corpus that no existing memory is a bare-command-only trigger on one of
+#     the Tier-B members. If CAL-03 surfaces a legitimate sole-trigger use of any Tier-B
+#     command in this corpus, that member is reconsidered there. No member is removed here.
 LOW_SIGNAL_COMMANDS = {
     "git", "cat", "ls", "cd", "cp", "mv", "rm", "mkdir", "echo",
     "python", "python3", "bash", "sh", "grep", "find", "sed", "awk",
