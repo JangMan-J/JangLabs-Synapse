@@ -52,7 +52,8 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
   2. A trigger set pairing a low-signal command with a narrowing arg or a specific (non-broad) path passes the static gate.
   3. The low-signal-command vocabulary lives in one named place in the engine and can be extended without touching gate logic.
   4. Explicit fixtures pin both the bare-`git` deny case and the `git`+narrowing-arg pass case.
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 06-01-PLAN.md — add LOW_SIGNAL_COMMANDS + broaden _check_triggers deny predicate so a bare low-signal-command-only trigger set is denied; explicit GATE fixtures
 
 ### Phase 7: Shadow Calibration
 **Goal**: Block and guide collision thresholds are set from the real shape of the corpus, not by assertion — a shadow pass over the existing ~146-memory corpus produces the collision distribution, thresholds are chosen and recorded with rationale, and re-validation proves no existing legitimate memory would trip the block tier. This is a real-demonstration gate that must run after the projection engine exists and before the enforcement block tier is finalized.
