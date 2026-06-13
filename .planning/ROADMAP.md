@@ -23,7 +23,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 
 **Milestone Goal:** Make trigger quality precise and verifiable at write time — discriminating, not merely present — using corpus signal that exists today, with zero dependence on accrued recall telemetry. Write-path only: the keystone `project_triggers` engine primitive reuses the existing matcher/index, the static gate is hardened to block real-but-broad low-signal commands, a shadow-calibration real-demonstration gate sets thresholds from the empirical corpus, and a two-tier "block the degenerate, guide the weak" enforcement is wired into the two existing write hooks. The read path is re-verified, never modified.
 
-- [ ] **Phase 5: Collision Projection Engine** - `project_triggers` primitive reuses the existing matcher to project a proposed trigger set against the live corpus
+- [x] **Phase 5: Collision Projection Engine** - `project_triggers` primitive reuses the existing matcher to project a proposed trigger set against the live corpus — completed 2026-06-13 (verified 5/5)
 - [ ] **Phase 6: Hardened Static Gate** - block real-but-broad low-signal commands at write time with no corpus lookup
 - [ ] **Phase 7: Shadow Calibration** - real-demonstration gate that sets block/guide thresholds from the empirical corpus collision distribution
 - [ ] **Phase 8: Corpus-Aware Enforcement Wiring** - two-tier block/guide enforcement wired into the two existing write hooks, read path re-verified
@@ -41,7 +41,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
   4. Any internal projection error returns "no collisions" and never raises — demonstrated by a forced-fault test.
   5. Contract tests pin the collision contract (proposed triggers → expected collision set against a synthetic catalog), not matcher internals.
 **Plans**: 1 plan
-  - [ ] 05-01-PLAN.md — Extract shared `_walk_index` from `search()`; add `project_triggers` collision primitive (fail-open) + contract tests; full-suite read-path no-regression gate
+  - [x] 05-01-PLAN.md — Extract shared `_walk_index` from `search()`; add `project_triggers` collision primitive (fail-open) + contract tests; full-suite read-path no-regression gate
 
 ### Phase 6: Hardened Static Gate
 **Goal**: The existing blocking write gate denies real-but-broad low-signal commands (bare `git`/`cat`/`ls` with no narrowing arg or specific path) the same way it denies generic verbs today — a static degenerate-blocker that needs no corpus lookup and can land independently of the projection engine.
@@ -88,7 +88,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 (Phase 6 is corpus-independ
 | 2. Routing Index & Live Recall Cutover | v1.0 | 4/4 | Complete | 2026-06-12 |
 | 3. Telemetry & Self-Curation | v1.0 | 4/4 | Complete | 2026-06-12 |
 | 4. Reorganization & Realignment | v1.0 | 3/3 | Complete | 2026-06-12 |
-| 5. Collision Projection Engine | v1.1 | 0/1 | Not started | - |
+| 5. Collision Projection Engine | v1.1 | 1/1 | Complete | 2026-06-13 |
 | 6. Hardened Static Gate | v1.1 | 0/TBD | Not started | - |
 | 7. Shadow Calibration | v1.1 | 0/TBD | Not started | - |
 | 8. Corpus-Aware Enforcement Wiring | v1.1 | 0/TBD | Not started | - |
