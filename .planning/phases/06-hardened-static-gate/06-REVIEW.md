@@ -11,7 +11,16 @@ findings:
   warning: 3
   info: 2
   total: 5
-status: issues_found
+status: clean
+resolution:
+  WR-01: resolved-by-documentation + corpus-deferral (two-tier membership comment above LOW_SIGNAL_COMMANDS; Tier-B validated in Phase 7 CAL-03; no member removed)
+  WR-02: fixed (command tokens normalized via strip().lower() to match read-path _norm before the membership test)
+  WR-03: fixed (added no-over-block PASS guards git+wpctl and bare wpctl; plus WR-02 deny fixtures Git and " git ")
+  IN-01: skipped (non-actionable polish — D-05 intent already covered across two tests)
+  IN-02: skipped (non-actionable polish — combined deny message wording acceptable)
+  fix_commits:
+    - 61a9969 fix(06-01) WR-02/WR-03
+    - cfbb9a5 docs(06-01) WR-01
 ---
 
 # Phase 6: Code Review Report
@@ -19,7 +28,7 @@ status: issues_found
 **Reviewed:** 2026-06-13
 **Depth:** standard
 **Files Reviewed:** 2
-**Status:** issues_found
+**Status:** clean (all warnings resolved — see frontmatter `resolution`)
 
 ## Summary
 
