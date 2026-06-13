@@ -1855,6 +1855,10 @@ def _empty_response(mode):
 # optional 'tierWeights' key in _memory_surface_config.json.
 TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
 
+# Canonical empty-projection literal (D-06 / PROJ-04).  Mirror of _empty_response but
+# with projection-specific keys (D-04).  Return dict(_EMPTY_PROJECTION) so callers
+# cannot mutate the module constant.
+_EMPTY_PROJECTION = {"collisions": [], "distinct_count": 0, "per_trigger": {}}
 
 
 def _score_tuples(tuples, mem, now, tier_weights):
@@ -2168,6 +2172,213 @@ def search(memdir, event, now=None):
     return {"schemaVersion": 1, "queryId": qid, "mode": rmode, "confidence": confidence,
             "tokens": tokens, "canonicalTags": canon_tags, "results": results,
             "surfaceText": surface_text(qid, rmode, confidence, results, cfg) if results else ""}
+
+
+# ---------------------------------------------------------------- collision projection
+def project_triggers(memdir, triggers, stem=None):
+    """Collision-projection primitive: given a proposed triggers dict, return the set of
+    distinct OTHER existing memories the triggers would co-fire with.
+
+    Returns the D-04 projection dict:
+      {"collisions": [{"id": <stem>, "via": [{"trigger": <pattern>, "type": <type>}]}, ...],
+       "distinct_count": <int>,
+       "per_trigger": {<raw-pattern>: <distinct-match-count>, ...}}
+
+    ALWAYS returns the dict; NEVER raises (fail open — PROJ-04).
+    A missing/corrupt catalog or any internal error returns dict(_EMPTY_PROJECTION).
+
+    Args:
+      memdir  — path to the memory store (Path or str)
+      triggers — proposed triggers dict with optional keys:
+                 commands (list[str]), args (list[str]),
+                 paths (list[str]), synonyms (list[str])
+      stem    — optional stem of the proposed memory to exclude from results (D-05/PROJ-03);
+                the proposed memory is not yet in the catalog so this is a defensive guard
+    """
+    try:
+        return _project_triggers_impl(memdir, triggers, stem)
+    except Exception:
+        return dict(_EMPTY_PROJECTION)
+
+
+def _project_triggers_impl(memdir, triggers, stem=None):
+    """Internal implementation — any exception propagates to project_triggers() which catches all.
+
+    Design notes:
+    - Does NOT call extract_tokens() — proposed triggers are mapped directly to token kinds
+      so multi-command lists don't get misclassified as args (RESEARCH Pitfall 2).
+    - Does NOT apply _meets_min_candidate() — projection reports ALL co-fires including
+      single-weak-tier ones; the surface gate is a recall concern, not a projection concern
+      (RESEARCH Pitfall 1/4).
+    - Reuses _walk_index() — the single shared matcher (D-01/Principle 6).
+    - Reads the on-disk catalog via _load_catalog(); never calls rebuild() (D-03).
+    """
+    if triggers is None:
+        triggers = {}
+
+    # ---- Load catalog; missing/corrupt is a normal condition (D-03) ----
+    catalog = _load_catalog(memdir)
+    if catalog is None:
+        return dict(_EMPTY_PROJECTION)
+
+    index = catalog.get("triggerIndex", {})
+    tag_to_mids = catalog.get("tagToMemoryIds", {})
+
+    # ---- Build token list and abs_paths directly from proposed triggers ----
+    # Do NOT call extract_tokens() — direct construction preserves per-field semantics
+    # (RESEARCH Pitfall 2: extract_tokens Bash-branch only treats words[0] as command).
+    # per_trigger_hits: raw pattern → set of distinct memory ids matched by that pattern
+    tokens = []
+    abs_paths = []
+    per_trigger_hits = {}
+
+    # commands → kind "command" strength "strong"
+    for cmd in (triggers.get("commands") or []):
+        v = _norm(cmd)
+        if not v:
+            continue   # Pitfall 3: drop tokens that don't pass TAG_RE
+        per_trigger_hits.setdefault(cmd, set())
+        tokens.append({"value": v, "kind": "command", "strength": "strong", "_origin": cmd})
+
+    # args → kind "argument" strength "strong"
+    for arg in (triggers.get("args") or []):
+        v = _norm(arg)
+        if not v:
+            continue
+        per_trigger_hits.setdefault(arg, set())
+        tokens.append({"value": v, "kind": "argument", "strength": "strong", "_origin": arg})
+
+    # synonyms → handled via a dedicated bySynonym pass after the main walk;
+    # also include 0-match entry in per_trigger for any synonym
+    syn_list = []
+    for syn in (triggers.get("synonyms") or []):
+        per_trigger_hits.setdefault(syn, set())
+        syn_list.append(syn)
+
+    # paths → expand and add to abs_paths; Pitfall 5: do NOT run paths through _norm
+    # (paths contain slashes/tildes/wildcards that never pass TAG_RE)
+    path_origins = {}  # expanded_path → raw pattern (for per_trigger attribution)
+    for p in (triggers.get("paths") or []):
+        per_trigger_hits.setdefault(p, set())
+        expanded = _expand(p)
+        abs_paths.append(expanded)
+        path_origins[expanded] = p
+
+    # ---- Run the shared index-walk (no _meets_min_candidate gate) ----
+    # Pass empty active/aliases — projection tokens are pre-classified (no recallVocab needed)
+    hits = _walk_index(tokens, abs_paths, index, tag_to_mids)
+
+    # ---- Per-trigger attribution for commands and args (single-pass) ----
+    # Re-walk the token list to attribute each fired memory to its origin pattern.
+    # We use the hits dict (already fully populated) and check which mids each token
+    # contributed to by re-looking up the same index entries.
+    by_command = index.get("byCommand", {})
+    by_arg = index.get("byArg", {})
+
+    for tok in tokens:
+        v = tok["value"]
+        kind = tok["kind"]
+        origin = tok["_origin"]
+
+        if kind == "command":
+            for entry in by_command.get(v, []):
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        if mid in hits:
+                            per_trigger_hits[origin].add(mid)
+                else:
+                    _mid = entry["id"]
+                    if _mid in hits:
+                        per_trigger_hits[origin].add(_mid)
+
+        elif kind == "argument":
+            # tag-name match
+            if v in tag_to_mids:
+                for mid in tag_to_mids.get(v, []):
+                    if mid in hits:
+                        per_trigger_hits[origin].add(mid)
+            # byArg match
+            for entry in by_arg.get(v, []):
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        if mid in hits:
+                            per_trigger_hits[origin].add(mid)
+                else:
+                    _mid = entry["id"]
+                    if _mid in hits:
+                        per_trigger_hits[origin].add(_mid)
+
+    # ---- Per-trigger attribution for synonyms (direct bySynonym pass) ----
+    by_synonym = index.get("bySynonym", {})
+    for syn in syn_list:
+        v = _norm(syn)
+        if not v:
+            continue
+        for entry in by_synonym.get(v, []):
+            if entry.get("source") == "tag":
+                _tag = entry["id"]
+                for mid in tag_to_mids.get(_tag, []):
+                    if mid in hits:
+                        per_trigger_hits[syn].add(mid)
+            else:
+                _mid = entry["id"]
+                if _mid in hits:
+                    per_trigger_hits[syn].add(_mid)
+
+    # ---- Per-trigger attribution for paths ----
+    # Match each abs_path against byPath entries (mirror of _walk_index path routing)
+    by_path = index.get("byPath", {})
+    for stored_key, entries in by_path.items():
+        p = _expand(stored_key)
+        matched_ap = None
+        if p.endswith("/**"):
+            prefix = p[:-3]
+            for ap in abs_paths:
+                if ap == prefix or ap.startswith(prefix + "/"):
+                    matched_ap = ap
+                    break
+        elif "**" in p:
+            continue
+        else:
+            for ap in abs_paths:
+                if fnmatch.fnmatchcase(ap, p):
+                    matched_ap = ap
+                    break
+        if matched_ap is not None:
+            raw_pat = path_origins.get(matched_ap)
+            if raw_pat is not None:
+                for entry in entries:
+                    if entry.get("source") == "tag":
+                        _tag = entry["id"]
+                        for mid in tag_to_mids.get(_tag, []):
+                            if mid in hits:
+                                per_trigger_hits[raw_pat].add(mid)
+                    else:
+                        _mid = entry["id"]
+                        if _mid in hits:
+                            per_trigger_hits[raw_pat].add(_mid)
+
+    # ---- Self-exclusion (D-05 / PROJ-03) ----
+    # The proposed memory is not yet in the catalog so it won't be in hits naturally.
+    # The defensive pop handles the "consolidation-into-existing" scenario.
+    if stem:
+        hits.pop(stem, None)
+        for s in per_trigger_hits:
+            per_trigger_hits[s].discard(stem)
+
+    # ---- Build D-04 result shape ----
+    collisions = []
+    for mid, tuples in hits.items():
+        via = [{"trigger": t["matched_value"], "type": t["trigger_type"]} for t in tuples]
+        collisions.append({"id": mid, "via": via})
+
+    return {
+        "collisions": collisions,
+        "distinct_count": len(collisions),
+        "per_trigger": {p: len(mids) for p, mids in per_trigger_hits.items()},
+    }
 
 
 # ---------------------------------------------------------------- taxonomy mutators
