@@ -814,6 +814,47 @@ class LowSignalCommandGate(TempStore):
                          f"broad-glob-only deny arm must still fire (QC-02 regression guard); "
                          f"msg: {msg!r}")
 
+    # --- WR-03 / T-06-01: no-over-block PASS guards (the false-denial direction) ---
+
+    def test_mixed_low_signal_plus_real_command_passes(self):
+        """WR-03/T-06-01: a real domain command alongside a low-signal one rescues the set
+        (no over-block). This is the property that breaks if someone changes all()→any() or
+        merges the sets — the single most dangerous regression for a blocking gate."""
+        rc, msg = ms._check_triggers(
+            {"commands": ["git", "wpctl"], "paths": [], "args": [], "synonyms": []})
+        self.assertEqual(rc, 0,
+                         f"git+wpctl must pass — wpctl is real signal, so not ALL commands "
+                         f"are low-signal; msg: {msg!r}")
+
+    def test_real_command_alone_passes(self):
+        """WR-03/T-06-01: a non-low-signal command alone must NOT be denied (false-denial
+        guard — a too-broad predicate would wrongly deny a legitimate single-command memory)."""
+        rc, msg = ms._check_triggers(
+            {"commands": ["wpctl"], "paths": [], "args": [], "synonyms": []})
+        self.assertEqual(rc, 0,
+                         f"bare 'wpctl' (a real domain command) must pass; msg: {msg!r}")
+
+    # --- WR-02: deny gate must normalize case/whitespace like the read path (_norm) ---
+
+    def test_capitalized_low_signal_command_denied(self):
+        """WR-02: 'Git' must be denied like 'git'. The read path lowercases command tokens
+        (_norm: strip+lower), so a trigger stored as 'Git' over-fires as 'git' at match
+        time — the gate must deny exactly that set, not be bypassable by casing."""
+        rc, msg = ms._check_triggers(
+            {"commands": ["Git"], "paths": [], "args": [], "synonyms": []})
+        self.assertEqual(rc, 2,
+                         f"capitalized 'Git' must be denied (read path normalizes to 'git'); "
+                         f"msg: {msg!r}")
+
+    def test_whitespace_padded_low_signal_command_denied(self):
+        """WR-02: ' git ' must be denied like 'git'. The read path strips whitespace
+        (_norm: strip+lower), so a padded token over-fires as 'git' at match time."""
+        rc, msg = ms._check_triggers(
+            {"commands": [" git "], "paths": [], "args": [], "synonyms": []})
+        self.assertEqual(rc, 2,
+                         f"whitespace-padded ' git ' must be denied (read path strips it); "
+                         f"msg: {msg!r}")
+
 
 class LegacyPreservation(TempStore):
     """D-09/spec: legacy memories with NO triggers block must not be retroactively invalidated.

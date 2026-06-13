@@ -1361,7 +1361,14 @@ def _check_triggers(triggers):
 
     non_broad_paths = [p for p in paths if not _is_broad(p)]
     if cmds and not args and not non_broad_paths:
-        all_low_signal = all(c in (GENERIC_VERBS | LOW_SIGNAL_COMMANDS) for c in cmds)
+        # Normalize each command exactly as the read path does (_norm: strip+lower,
+        # line ~1587) before the membership test. Otherwise `Git` / ` git ` would pass
+        # the gate yet be lowercased/stripped to `git` at match time — over-firing the
+        # very noise this gate exists to deny (WR-02). The gate must deny precisely the
+        # set the read path would over-fire on, no more, no less. Original `cmds` is kept
+        # for the message so the author sees what they actually wrote.
+        norm_cmds = {c.strip().lower() for c in cmds}
+        all_low_signal = all(c in (GENERIC_VERBS | LOW_SIGNAL_COMMANDS) for c in norm_cmds)
         if all_low_signal:
             return 2, (
                 f"triggers.commands contains only generic or low-signal commands "
