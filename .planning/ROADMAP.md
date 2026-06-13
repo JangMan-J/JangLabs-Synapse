@@ -24,7 +24,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 **Milestone Goal:** Make trigger quality precise and verifiable at write time — discriminating, not merely present — using corpus signal that exists today, with zero dependence on accrued recall telemetry. Write-path only: the keystone `project_triggers` engine primitive reuses the existing matcher/index, the static gate is hardened to block real-but-broad low-signal commands, a shadow-calibration real-demonstration gate sets thresholds from the empirical corpus, and a two-tier "block the degenerate, guide the weak" enforcement is wired into the two existing write hooks. The read path is re-verified, never modified.
 
 - [x] **Phase 5: Collision Projection Engine** - `project_triggers` primitive reuses the existing matcher to project a proposed trigger set against the live corpus — completed 2026-06-13 (verified 5/5)
-- [ ] **Phase 6: Hardened Static Gate** - block real-but-broad low-signal commands at write time with no corpus lookup
+- [x] **Phase 6: Hardened Static Gate** - block real-but-broad low-signal commands at write time with no corpus lookup — completed 2026-06-13
 - [ ] **Phase 7: Shadow Calibration** - real-demonstration gate that sets block/guide thresholds from the empirical corpus collision distribution
 - [ ] **Phase 8: Corpus-Aware Enforcement Wiring** - two-tier block/guide enforcement wired into the two existing write hooks, read path re-verified
 
@@ -53,7 +53,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
   3. The low-signal-command vocabulary lives in one named place in the engine and can be extended without touching gate logic.
   4. Explicit fixtures pin both the bare-`git` deny case and the `git`+narrowing-arg pass case.
 **Plans**: 1 plan
-  - [ ] 06-01-PLAN.md — add LOW_SIGNAL_COMMANDS + broaden _check_triggers deny predicate so a bare low-signal-command-only trigger set is denied; explicit GATE fixtures
+  - [x] 06-01-PLAN.md — add LOW_SIGNAL_COMMANDS + broaden _check_triggers deny predicate so a bare low-signal-command-only trigger set is denied; explicit GATE fixtures
 
 ### Phase 7: Shadow Calibration
 **Goal**: Block and guide collision thresholds are set from the real shape of the corpus, not by assertion — a shadow pass over the existing ~146-memory corpus produces the collision distribution, thresholds are chosen and recorded with rationale, and re-validation proves no existing legitimate memory would trip the block tier. This is a real-demonstration gate that must run after the projection engine exists and before the enforcement block tier is finalized.
@@ -90,7 +90,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 (Phase 6 is corpus-independ
 | 3. Telemetry & Self-Curation | v1.0 | 4/4 | Complete | 2026-06-12 |
 | 4. Reorganization & Realignment | v1.0 | 3/3 | Complete | 2026-06-12 |
 | 5. Collision Projection Engine | v1.1 | 1/1 | Complete | 2026-06-13 |
-| 6. Hardened Static Gate | v1.1 | 0/TBD | Not started | - |
+| 6. Hardened Static Gate | v1.1 | 1/1 | Complete | 2026-06-13 |
 | 7. Shadow Calibration | v1.1 | 0/TBD | Not started | - |
 | 8. Corpus-Aware Enforcement Wiring | v1.1 | 0/TBD | Not started | - |
 

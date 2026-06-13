@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 5 — Collision Projection Engine
+Phase: 6 — Hardened Static Gate
 Plan: 1 of 1 — COMPLETE
-Status: Phase 5 complete; ready for Phase 6 (Static Gate) or Phase 7 (Shadow Calibration)
-Last activity: 2026-06-13 — Phase 5 Plan 01 executed: project_triggers primitive + 19 contract tests
+Status: Phase 6 complete; ready for Phase 7 (Shadow Calibration)
+Last activity: 2026-06-13 — Phase 6 Plan 01 executed: LOW_SIGNAL_COMMANDS + broadened _check_triggers deny predicate (391 passed, 10 skipped, 0 failed)
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Last activity: 2026-06-13 — Phase 5 Plan 01 executed: project_triggers primiti
 | Phase 04-reorganization-realignment P02 | 35 | 3 tasks | 8 files |
 | Phase 04 P03 | 2400 | - tasks | - files |
 | Phase 05 P01 | 25 minutes | 3 tasks | 2 files |
+| Phase 06 P01 | 12 minutes | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -154,9 +155,9 @@ Items acknowledged and carried forward; out of scope for v1.1.
 ## Session Continuity
 
 Last session: 2026-06-13
-Stopped at: v1.1 roadmap created (Phases 5-8)
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd-plan-phase 5` (Collision Projection Engine).
+- Run `/gsd-plan-phase 7` (Shadow Calibration) — requires Phase 5 projection primitive (complete).
