@@ -11,7 +11,20 @@ findings:
   warning: 2
   info: 3
   total: 5
-status: issues_found
+status: clean
+fixed: 2026-06-13
+fixed_findings: [WR-01, WR-02, IN-01, IN-03]
+deferred_findings: [IN-02]
+fix_commit: e13c3ac
+fix_note: >-
+  WR-01/WR-02/IN-01/IN-03 fixed in e13c3ac (synonyms routed through _walk_index
+  as kind:tag tokens; synonym contract tests added; path via[].trigger reports
+  the raw pattern; _walk_index docstring corrected). Full suite 380 passed
+  (373 baseline + 7 new), 10 skipped, 0 regressions; 60 routing-contract +
+  recall read-path tests green with zero test edits. IN-02 deliberately
+  deferred — the arg-attribution proxy is harmless today (every add guarded by
+  `if mid in hits`); left as-is per review guidance to avoid risking behavior
+  change.
 ---
 
 # Phase 5: Code Review Report
@@ -19,7 +32,7 @@ status: issues_found
 **Reviewed:** 2026-06-13
 **Depth:** standard
 **Files Reviewed:** 2
-**Status:** issues_found
+**Status:** clean (fixed 2026-06-13 — WR-01/WR-02/IN-01/IN-03 in e13c3ac; IN-02 deferred as harmless)
 
 ## Summary
 
