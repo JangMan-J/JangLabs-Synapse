@@ -58,7 +58,7 @@ placement: either
 commands: [git]
 paths: []
 args: []
-synonyms: []
+synonyms: [gitsyn]
 related: []
 
 ### nvim
@@ -400,6 +400,96 @@ class Test07PathTriggerCollision(Base):
         for git_stem in ("mem-git-a", "mem-git-b", "mem-git-c"):
             self.assertNotIn(git_stem, collision_ids,
                              f"{git_stem} must not collide with the nvim path trigger")
+
+
+# ---------------------------------------------------------------------------
+# SC-8 / WR-01: synonym projection — a grammar-tag synonym (git→gitsyn) co-fires
+# with all memories carrying that tag. Pins D-02 (synonyms → synonym tokens that
+# reach the matcher) and D-04 (the co-fire reports via type='synonym').
+#
+# These tests FAIL against the pre-WR-01 implementation (synonyms never reached
+# _walk_index, so a synonyms-only projection returned zero collisions) and PASS
+# after the fix.
+# ---------------------------------------------------------------------------
+
+class Test08SynonymCollision(Base):
+    """D-02/D-04/WR-01: a synonyms-only projection reports the co-firing memories."""
+
+    def test_synonym_only_trigger_finds_all_git_memories(self):
+        """WR-01/PROJ-01: synonyms:[gitsyn] (synonym of grammar tag git) co-fires with all 3."""
+        result = ms.project_triggers(self.store, {"synonyms": ["gitsyn"]})
+        ids = self._collision_ids(result)
+        self.assertEqual(result["distinct_count"], 3,
+                         f"synonym-only projection must find all 3 git memories, got {result}")
+        self.assertEqual(ids, {"mem-git-a", "mem-git-b", "mem-git-c"})
+
+    def test_synonym_per_trigger_breadth(self):
+        """WR-01/PROJ-02: per_trigger[<synonym>] reports the true synonym match count."""
+        result = ms.project_triggers(self.store, {"synonyms": ["gitsyn"]})
+        self.assertEqual(result["per_trigger"].get("gitsyn", 0), 3,
+                         f"per_trigger['gitsyn'] must equal 3, got {result['per_trigger']}")
+
+    def test_synonym_collision_has_type_synonym(self):
+        """D-04/WR-01: a synonym co-fire is attributed via type='synonym' in collisions[].via."""
+        result = ms.project_triggers(self.store, {"synonyms": ["gitsyn"]})
+        via_types = {v["type"] for c in result["collisions"] for v in c["via"]}
+        self.assertIn("synonym", via_types,
+                      f"at least one collision must report via type='synonym'; got {via_types}")
+
+    def test_synonym_via_trigger_is_raw_pattern(self):
+        """D-04: via[].trigger for a synonym hit is the raw proposed synonym pattern."""
+        result = ms.project_triggers(self.store, {"synonyms": ["gitsyn"]})
+        syn_via = [v for c in result["collisions"] for v in c["via"] if v["type"] == "synonym"]
+        self.assertTrue(syn_via, "expected at least one synonym via entry")
+        for v in syn_via:
+            self.assertEqual(v["trigger"], "gitsyn",
+                             f"synonym via[].trigger must be the raw pattern 'gitsyn', got {v}")
+
+    def test_unmatched_synonym_gets_zero_count(self):
+        """D-04: a proposed synonym matching nothing still appears in per_trigger with count 0."""
+        result = ms.project_triggers(self.store, {"synonyms": ["no-such-synonym-xyz"]})
+        self.assertIn("no-such-synonym-xyz", result["per_trigger"])
+        self.assertEqual(result["per_trigger"]["no-such-synonym-xyz"], 0)
+        self.assertEqual(result["distinct_count"], 0)
+
+    def test_mixed_command_and_synonym_attribution(self):
+        """WR-01: in a mixed projection the synonym contributes its own type='synonym' tuples,
+        not merely riding on the command's hits (the masking bug WR-01 describes)."""
+        result = ms.project_triggers(self.store, {"commands": ["git"], "synonyms": ["gitsyn"]})
+        # Both triggers independently reach all 3 git memories.
+        self.assertEqual(result["distinct_count"], 3, result)
+        self.assertEqual(result["per_trigger"].get("git", 0), 3)
+        self.assertEqual(result["per_trigger"].get("gitsyn", 0), 3)
+        # The synonym contributes genuine type='synonym' tuples (not masked by the command).
+        via_types = {v["type"] for c in result["collisions"] for v in c["via"]}
+        self.assertIn("synonym", via_types, via_types)
+        self.assertIn("command", via_types, via_types)
+
+
+# ---------------------------------------------------------------------------
+# IN-01: path collision via[].trigger reports the RAW proposed pattern, not the
+# expanded absolute path the matcher records internally.
+# ---------------------------------------------------------------------------
+
+class Test09PathViaRawPattern(Base):
+    """IN-01: via[].trigger for a path collision is the proposed pattern, not the abs path."""
+
+    _memories = MEMORIES_WITH_PATH
+
+    def test_path_via_trigger_is_raw_proposed_pattern(self):
+        """IN-01: a path collision reports via[].trigger == the raw '~/...'-prefixed pattern."""
+        pat = "~/.config/nvim/init.lua"
+        result = ms.project_triggers(self.store, {"paths": [pat]})
+        nvim = next((c for c in result["collisions"] if c["id"] == "mem-nvim"), None)
+        self.assertIsNotNone(nvim, "mem-nvim must be a collision")
+        path_via = [v for v in nvim["via"] if v["type"] == "path"]
+        self.assertTrue(path_via, "expected a path via entry")
+        for v in path_via:
+            self.assertEqual(v["trigger"], pat,
+                             f"path via[].trigger must be the raw pattern {pat!r}, "
+                             f"not the expanded abs path; got {v['trigger']!r}")
+            self.assertFalse(v["trigger"].startswith("/home"),
+                             "via[].trigger must not be the expanded absolute path")
 
 
 if __name__ == "__main__":

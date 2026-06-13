@@ -1936,7 +1936,8 @@ def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None
     Accepts:
       tokens      — list of {value, kind, strength} dicts (from extract_tokens or direct construction)
       abs_paths   — list of absolute path strings for byPath routing
-      index       — catalog["triggerIndex"] dict (byCommand/byArg/bySynonym/byPath/byMemoryId)
+      index       — catalog["triggerIndex"] dict (reads byCommand/byArg/bySynonym/byPath;
+                    byMemoryId is present in the dict but unused here)
       tag_to_mids — catalog["tagToMemoryIds"] dict (grammar_tag → [stem, ...])
       active      — set of active grammar tag names (needed for "argument"/"tag" kind routing;
                     pass frozenset() or None when calling from projection without recallVocab)
@@ -2249,12 +2250,19 @@ def _project_triggers_impl(memdir, triggers, stem=None):
         per_trigger_hits.setdefault(arg, set())
         tokens.append({"value": v, "kind": "argument", "strength": "strong", "_origin": arg})
 
-    # synonyms → handled via a dedicated bySynonym pass after the main walk;
-    # also include 0-match entry in per_trigger for any synonym
-    syn_list = []
+    # synonyms → kind "tag" (WR-01). _walk_index routes a "tag"-kind token with empty
+    # active/aliases straight through to its bySynonym block (lines ~2031-2039), so the
+    # synonym co-fires land in `hits` exactly like every other trigger field — no separate
+    # post-walk attribution pass is needed (which was the WR-01 bug: synonyms were seeded
+    # into per_trigger_hits but never reached _walk_index, so synonym-only projections
+    # always returned zero collisions). A synonym that doesn't pass TAG_RE still gets a
+    # 0-count per_trigger entry so the breadth report lists every proposed synonym.
     for syn in (triggers.get("synonyms") or []):
+        v = _norm(syn)
         per_trigger_hits.setdefault(syn, set())
-        syn_list.append(syn)
+        if not v:
+            continue   # Pitfall 3: drop tokens that don't pass TAG_RE
+        tokens.append({"value": v, "kind": "tag", "strength": "weak", "_origin": syn})
 
     # paths → expand and add to abs_paths; Pitfall 5: do NOT run paths through _norm
     # (paths contain slashes/tildes/wildcards that never pass TAG_RE)
@@ -2275,6 +2283,7 @@ def _project_triggers_impl(memdir, triggers, stem=None):
     # contributed to by re-looking up the same index entries.
     by_command = index.get("byCommand", {})
     by_arg = index.get("byArg", {})
+    by_synonym = index.get("bySynonym", {})
 
     for tok in tokens:
         v = tok["value"]
@@ -2311,22 +2320,20 @@ def _project_triggers_impl(memdir, triggers, stem=None):
                     if _mid in hits:
                         per_trigger_hits[origin].add(_mid)
 
-    # ---- Per-trigger attribution for synonyms (direct bySynonym pass) ----
-    by_synonym = index.get("bySynonym", {})
-    for syn in syn_list:
-        v = _norm(syn)
-        if not v:
-            continue
-        for entry in by_synonym.get(v, []):
-            if entry.get("source") == "tag":
-                _tag = entry["id"]
-                for mid in tag_to_mids.get(_tag, []):
-                    if mid in hits:
-                        per_trigger_hits[syn].add(mid)
-            else:
-                _mid = entry["id"]
-                if _mid in hits:
-                    per_trigger_hits[syn].add(_mid)
+        elif kind == "tag":
+            # synonyms (WR-01): projection passes empty active/aliases, so a tag-kind
+            # token routes ONLY through bySynonym in _walk_index — mirror that here so
+            # per_trigger attribution matches the walk's hits exactly.
+            for entry in by_synonym.get(v, []):
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        if mid in hits:
+                            per_trigger_hits[origin].add(mid)
+                else:
+                    _mid = entry["id"]
+                    if _mid in hits:
+                        per_trigger_hits[origin].add(_mid)
 
     # ---- Per-trigger attribution for paths ----
     # Match each abs_path against byPath entries (mirror of _walk_index path routing)
@@ -2370,9 +2377,18 @@ def _project_triggers_impl(memdir, triggers, stem=None):
             per_trigger_hits[s].discard(stem)
 
     # ---- Build D-04 result shape ----
+    # IN-01: for path hits, _walk_index records the matched ABSOLUTE path in matched_value,
+    # but D-04 specifies via[].trigger as the proposed pattern. Map it back through
+    # path_origins (expanded_abs_path → raw pattern) so paths report the raw pattern the
+    # user supplied, consistent with how commands/args report their raw token value.
     collisions = []
     for mid, tuples in hits.items():
-        via = [{"trigger": t["matched_value"], "type": t["trigger_type"]} for t in tuples]
+        via = []
+        for t in tuples:
+            trig = t["matched_value"]
+            if t["trigger_type"] == "path":
+                trig = path_origins.get(trig, trig)
+            via.append({"trigger": trig, "type": t["trigger_type"]})
         collisions.append({"id": mid, "via": via})
 
     return {
