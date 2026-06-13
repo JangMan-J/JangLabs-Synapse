@@ -1855,10 +1855,11 @@ def _empty_response(mode):
 # optional 'tierWeights' key in _memory_surface_config.json.
 TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
 
-# Canonical empty-projection literal (D-06 / PROJ-04).  Mirror of _empty_response but
-# with projection-specific keys (D-04).  Return dict(_EMPTY_PROJECTION) so callers
-# cannot mutate the module constant.
-_EMPTY_PROJECTION = {"collisions": [], "distinct_count": 0, "per_trigger": {}}
+# Canonical empty-projection shape (D-06 / PROJ-04).  A factory, not a constant: each call
+# returns a FRESH dict so callers mutating result["collisions"] cannot corrupt a shared
+# module object.  Single source of the projection-result keys (D-04).
+def _empty_projection():
+    return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
 
 
 def _score_tuples(tuples, mem, now, tier_weights):
@@ -1964,7 +1965,6 @@ def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None
     by_arg = index.get("byArg", {})
     by_synonym = index.get("bySynonym", {})
     by_path = index.get("byPath", {})
-    by_memory_id = index.get("byMemoryId", {})
 
     for tok in tokens:
         v = tok["value"]
@@ -2185,7 +2185,7 @@ def project_triggers(memdir, triggers, stem=None):
        "per_trigger": {<raw-pattern>: <distinct-match-count>, ...}}
 
     ALWAYS returns the dict; NEVER raises (fail open — PROJ-04).
-    A missing/corrupt catalog or any internal error returns dict(_EMPTY_PROJECTION).
+    A missing/corrupt catalog or any internal error returns a fresh _empty_projection().
 
     Args:
       memdir  — path to the memory store (Path or str)
@@ -2198,8 +2198,7 @@ def project_triggers(memdir, triggers, stem=None):
     try:
         return _project_triggers_impl(memdir, triggers, stem)
     except Exception:
-        # Return a fresh copy so callers cannot mutate the module constant (D-06).
-        return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
+        return _empty_projection()
 
 
 def _project_triggers_impl(memdir, triggers, stem=None):
@@ -2221,7 +2220,7 @@ def _project_triggers_impl(memdir, triggers, stem=None):
     catalog = _load_catalog(memdir)
     if catalog is None:
         # Missing/corrupt catalog is a normal condition (D-03).
-        return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
+        return _empty_projection()
 
     index = catalog.get("triggerIndex", {})
     tag_to_mids = catalog.get("tagToMemoryIds", {})
