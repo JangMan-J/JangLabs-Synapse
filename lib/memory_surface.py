@@ -1279,7 +1279,24 @@ def rebuild(memdir):
 
 
 # ---------------------------------------------------------------- check-write
-def _check_triggers(triggers):
+def _routable_args(memdir):
+    """The set of args routable at recall time = keys of the catalog `byArg` index.
+
+    Decision A (Corpusforge finding): an arg narrows recall only if it is in this set.
+    Returns None when the catalog is missing/unreadable so the gate FAILS OPEN (never
+    hard-deny on missing infra). Read-only; never rebuilds.
+    """
+    try:
+        catalog = _load_catalog(memdir)
+        if not catalog:
+            return None
+        by_arg = catalog.get("triggerIndex", {}).get("byArg", {})
+        return set(by_arg.keys())
+    except Exception:
+        return None
+
+
+def _check_triggers(triggers, routable_args=None):
     """Validate a triggers dict for shape and specificity (D-09, D-10).
 
     Returns (rc, reason):
@@ -1290,7 +1307,19 @@ def _check_triggers(triggers):
       1. Must be a dict of string lists (shape)
       2. All field names must be in TRIGGER_FIELDS (D-04 vocabulary)
       3. At least one behavioral evidence field (commands/paths/args) non-empty (D-09)
-      4. Specificity gate: generic-only commands with no specific args/paths → deny (D-10)
+      4. Specificity gate: generic/low-signal-only commands with no narrowing
+         (routable) args or specific paths → deny (D-10).
+
+    `routable_args` (decision A, 2026-06-13 — Corpusforge finding
+    `findings/corpusforge-arg-narrowing-projection-gap.md`): the set of args that are
+    actually routable at recall time (the keys of the catalog `byArg` index). Args route
+    only against this curated vocabulary, so a NOVEL arg (e.g. `stash` when `stash` is not
+    in `byArg`) does NOT narrow recall — `git`+`stash` over-fires exactly like bare `git`.
+    Therefore only a routable arg rescues a low-signal command at the gate, keeping the
+    static gate consistent with the corpus-projection tier (which sees the same recall
+    reality). When `routable_args is None` (no catalog available / direct call), the gate
+    FAILS OPEN — any non-empty arg is treated as rescuing — so it never hard-denies on
+    missing infra. The caller (`check_write`) supplies the live `byArg` keys.
     """
     if not isinstance(triggers, dict):
         return 2, (
@@ -1360,7 +1389,20 @@ def _check_triggers(triggers):
         return False
 
     non_broad_paths = [p for p in paths if not _is_broad(p)]
-    if cmds and not args and not non_broad_paths:
+
+    # Decision A (Corpusforge finding): only a ROUTABLE arg narrows a low-signal command,
+    # because args route only against the curated byArg vocabulary at recall time. A novel
+    # arg (not in routable_args) adds zero narrowing power, so it must not rescue the gate.
+    # routable_args=None => no catalog => FAIL OPEN (any non-empty arg counts as narrowing),
+    # so the gate never hard-denies on missing infra. Args are matched case-insensitively
+    # to mirror the read path's token normalization.
+    if routable_args is None:
+        narrowing_args = args                                  # fail open: any arg narrows
+    else:
+        _rset = {a.strip().lower() for a in routable_args}
+        narrowing_args = [a for a in args if a.strip().lower() in _rset]
+
+    if cmds and not narrowing_args and not non_broad_paths:
         # Normalize each command exactly as the read path does (_norm: strip+lower,
         # line ~1587) before the membership test. Otherwise `Git` / ` git ` would pass
         # the gate yet be lowercased/stripped to `git` at match time — over-firing the
@@ -1370,16 +1412,27 @@ def _check_triggers(triggers):
         norm_cmds = {c.strip().lower() for c in cmds}
         all_low_signal = all(c in (GENERIC_VERBS | LOW_SIGNAL_COMMANDS) for c in norm_cmds)
         if all_low_signal:
+            # Distinguish "no arg at all" from "arg present but not routable" so the
+            # author gets the actionable fix (decision A).
+            if args and routable_args is not None:
+                extra = (f" The arg(s) you gave ({', '.join(sorted(args))}) are not "
+                         f"routable — args narrow recall only when they are in the grammar "
+                         f"'args:' vocabulary, so a novel arg does not actually narrow this "
+                         f"command. Add the arg to the grammar 'args:' to make it routable, "
+                         f"or use a specific path.")
+            else:
+                extra = (" Add a distinguishing arg (a grammar-routable subcommand) or a "
+                         "specific path to narrow the trigger.")
             return 2, (
                 f"triggers.commands contains only generic or low-signal commands "
-                f"({', '.join(sorted(cmds))}) with no specific args or "
+                f"({', '.join(sorted(cmds))}) with no narrowing routable args or "
                 f"domain-specific paths. Generic and broadly-used commands provide no routing "
-                f"signal on their own — add a distinguishing arg (e.g. a subcommand or "
-                f"target) or a specific path to narrow the trigger.\n"
+                f"signal on their own —{extra}\n"
                 + TRIGGER_SCHEMA_HINT
             )
-    # Broad-glob-only: the ONLY behavioral evidence is broad globs
-    if not cmds and not args and paths and not non_broad_paths:
+    # Broad-glob-only: the ONLY behavioral evidence is broad globs (a non-routable arg
+    # does not rescue this either, by the same decision-A reasoning).
+    if not cmds and not narrowing_args and paths and not non_broad_paths:
         return 2, (
             f"triggers.paths consists only of overly-broad glob(s) "
             f"({', '.join(paths)}) that match the entire home directory (no domain "
@@ -1488,7 +1541,10 @@ def check_write(memdir, content, target=None):
                 "(D-09: triggers must be embedded at write time).\n"
                 + TRIGGER_SCHEMA_HINT
             )
-        rc, reason = _check_triggers(triggers)
+        # Decision A: pass the live routable-arg vocabulary (catalog byArg keys) so a
+        # novel non-routable arg does not falsely rescue a low-signal command. Catalog
+        # missing/unreadable => routable_args=None => gate fails open (any arg rescues).
+        rc, reason = _check_triggers(triggers, routable_args=_routable_args(memdir))
         if rc:
             return rc, reason
         # D-11 Layer 2: dedup backstop — only for NEW files (target exists → overwrite/consolidation allowed)

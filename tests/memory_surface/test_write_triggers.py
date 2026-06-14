@@ -932,5 +932,65 @@ class DefaultTargetBoxStoreSemantics(TempStore):
                          "check_write(..., target=None) must behave identically to the default")
 
 
+class RoutableArgNarrowingGate(unittest.TestCase):
+    """Decision A (2026-06-13, Corpusforge finding
+    findings/corpusforge-arg-narrowing-projection-gap.md):
+
+    A novel arg does NOT narrow a low-signal command, because args route only against the
+    curated byArg vocabulary at recall time. Only a *routable* arg (in routable_args) or a
+    specific path rescues a low-signal command at the static gate — keeping the gate
+    consistent with the corpus-projection tier and preventing false-blocks of good-faith
+    narrowed memories. routable_args=None fails OPEN (legacy behavior).
+
+    These exercise _check_triggers directly with explicit routable_args sets (the contract),
+    independent of any store/catalog.
+    """
+
+    def test_nonroutable_arg_does_not_rescue_low_signal_command(self):
+        """git+stash with stash NOT routable -> DENY (the exact Corpusforge catch)."""
+        rc, msg = ms._check_triggers(
+            {"commands": ["git"], "args": ["stash"]}, routable_args=set())
+        self.assertEqual(rc, 2, "non-routable arg must not rescue a low-signal command")
+        self.assertIn("routable", msg.lower(),
+                      "deny message should explain the arg is not routable")
+
+    def test_routable_arg_rescues_low_signal_command(self):
+        """git+stash with stash routable -> PASS."""
+        rc, _ = ms._check_triggers(
+            {"commands": ["git"], "args": ["stash"]}, routable_args={"stash"})
+        self.assertEqual(rc, 0, "a routable arg must rescue a low-signal command")
+
+    def test_routable_arg_match_is_case_insensitive(self):
+        """git+Stash with 'stash' routable -> PASS (read-path normalizes case)."""
+        rc, _ = ms._check_triggers(
+            {"commands": ["git"], "args": ["Stash"]}, routable_args={"stash"})
+        self.assertEqual(rc, 0, "routable-arg match must be case-insensitive")
+
+    def test_specific_path_still_rescues_regardless_of_args(self):
+        """A specific non-broad path rescues even with no routable arg."""
+        rc, _ = ms._check_triggers(
+            {"commands": ["git"], "paths": ["~/.config/foo/**"]}, routable_args=set())
+        self.assertEqual(rc, 0, "a specific path must rescue a low-signal command")
+
+    def test_routable_args_none_fails_open(self):
+        """routable_args=None (no catalog) => any arg rescues (legacy fail-open)."""
+        rc, _ = ms._check_triggers(
+            {"commands": ["git"], "args": ["stash"]}, routable_args=None)
+        self.assertEqual(rc, 0, "routable_args=None must fail open (any arg rescues)")
+
+    def test_real_command_alone_still_passes(self):
+        """A real (non-low-signal) command alone passes regardless of routable_args."""
+        rc, _ = ms._check_triggers({"commands": ["wpctl"]}, routable_args=set())
+        self.assertEqual(rc, 0, "a real domain command alone must pass (no over-block)")
+
+    def test_routable_helper_returns_none_on_missing_catalog(self):
+        """_routable_args must return None (fail-open signal) when the catalog is absent."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(ms._routable_args(Path(d)),
+                              "_routable_args must return None when no catalog exists")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
