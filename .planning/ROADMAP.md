@@ -25,8 +25,8 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 
 - [x] **Phase 5: Collision Projection Engine** - `project_triggers` primitive reuses the existing matcher to project a proposed trigger set against the live corpus — completed 2026-06-13 (verified 5/5)
 - [x] **Phase 6: Hardened Static Gate** - block real-but-broad low-signal commands at write time with no corpus lookup — completed 2026-06-13
-- [ ] **Phase 7: Shadow Calibration** - real-demonstration gate that sets block/guide thresholds from the empirical corpus collision distribution
-- [ ] **Phase 8: Corpus-Aware Enforcement Wiring** - two-tier block/guide enforcement wired into the two existing write hooks, read path re-verified
+- [x] **Phase 7: Shadow Calibration** - real-demonstration gate. **Outcome: the live corpus rejects the scalar threshold** (no safe N exists); the per-component contribution table is adopted as the enforcement signal. Completed 2026-06-14 (verified 4/4) — see `07-CALIBRATION.md`.
+- [ ] **Phase 8: Corpus-Aware Enforcement Wiring** - ⚠️ **PENDING REPLAN.** Original scalar-threshold design superseded by Phase 7's per-component finding. To be re-specced: per-component verdict (BLOCK pure-command-breadth-with-dead-levers / GUIDE broad-author-axis / PASS), ENF-04 re-scope to advisory guide-breadth floor.
 
 ## Phase Details
 
@@ -64,11 +64,13 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
   2. Block and guide thresholds are chosen from that empirical distribution and recorded — with rationale — as a committed artifact.
   3. Re-validation proves no existing legitimate memory trips the chosen block tier (no false denials of work already in the store), recorded verbatim.
   4. No memory file is mutated by the shadow pass — `memory/` is read as data only.
-**Plans**: TBD
+**Plans**: completed without a formal plan file — executed as a direct real-demonstration shadow pass (the deliverable is the committed artifact, not code).
+**Outcome (2026-06-14):** Goal achieved; conclusion inverts the plan. Live shadow over 10 trigger-bearing memories → `distinct_count` distribution `[0×9, 48]` (degenerate-bimodal, no calibratable band). The lone outlier's breadth is 48 on a single broad **path** axis (parent-path `~/.claude/` flood), `cmd=arg=syn=0`. CAL-03 counterfactual: every scalar `block≥N` (3..48) false-denies that legitimate memory; `≥49` is inert — **no safe scalar threshold exists.** Decision: reject the scalar tier; adopt the per-component contribution table (`per_trigger`, already shipped) as the enforcement signal — BLOCK only the pure-command-breadth-with-dead-levers pattern, GUIDE broad author-controlled axes, PASS otherwise. Adopted rule false-denies zero legitimate live memories. Artifacts: `07-CALIBRATION.md`, `07-VERIFICATION.md`, `07-shadow-data.json`. Verified 4/4.
 
 ### Phase 8: Corpus-Aware Enforcement Wiring
 **Goal**: The two-tier "block the degenerate, guide the weak" posture is live in the two existing write hooks — `check-write` denies corpus-noise-class collisions above the calibrated block threshold citing the colliding ids, `write_context` surfaces advisory guidance for weak-but-legitimate collisions without blocking, every new path fails open, and the read path is re-demonstrated unchanged. This phase consumes the calibrated thresholds from Phase 7 and the projection primitive from Phase 5.
-**Depends on**: Phase 5 (projection primitive), Phase 6 (hardened static gate), Phase 7 (calibrated thresholds)
+**Depends on**: Phase 5 (projection primitive), Phase 6 (hardened static gate), Phase 7 (calibration finding)
+**⚠️ PENDING REPLAN (2026-06-14):** Phase 7 superseded the scalar-threshold premise this phase was written against. The success criteria below still reference "distinct-collision count above the block threshold" — that signal is rejected. Phase 8 must be re-specced around the per-component verdict (BLOCK pure-command-breadth-with-dead-levers / GUIDE broad-author-axis / PASS) before planning. ENF-04 ("thresholds in config") re-scopes from a block cutoff to an advisory guide-breadth floor that cannot false-deny.
 **Requirements**: ENF-01, ENF-02, ENF-03, ENF-04, ENF-05, QC-03, QC-04
 **Success Criteria** (what must be TRUE):
   1. A degenerate write (projected distinct-collision count above the block threshold) is denied by the guard with the colliding memory ids cited as the actionable reason; on any projection error only the static GATE rules apply and the write proceeds.
@@ -91,8 +93,8 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 (Phase 6 is corpus-independ
 | 4. Reorganization & Realignment | v1.0 | 3/3 | Complete | 2026-06-12 |
 | 5. Collision Projection Engine | v1.1 | 1/1 | Complete | 2026-06-13 |
 | 6. Hardened Static Gate | v1.1 | 1/1 | Complete | 2026-06-13 |
-| 7. Shadow Calibration | v1.1 | 0/TBD | Not started | - |
-| 8. Corpus-Aware Enforcement Wiring | v1.1 | 0/TBD | Not started | - |
+| 7. Shadow Calibration | v1.1 | 1/1 | Complete (scalar rejected; per-component adopted) | 2026-06-14 |
+| 8. Corpus-Aware Enforcement Wiring | v1.1 | 0/TBD | Pending replan (per-component) | - |
 
 ---
 *Next: run `/gsd-execute-phase 5` to execute the Collision Projection Engine.*

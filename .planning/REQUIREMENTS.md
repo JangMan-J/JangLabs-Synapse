@@ -61,14 +61,22 @@ hooks.
 The real-demonstration gate that sets thresholds from the empirical corpus rather than by
 assertion.
 
-- [ ] **CAL-01**: A shadow pass computes, for each existing memory, its trigger projection
+- [x] **CAL-01**: A shadow pass computes, for each existing memory, its trigger projection
   against the rest of the corpus, producing the corpus collision distribution
   (median / p90 / p95 / where the genuine noise-trigger class falls).
-- [ ] **CAL-02**: Block and guide thresholds are chosen from that empirical distribution
+  *Done 2026-06-14: live pass over 10 trigger-bearing memories → `[0×9, 48]`
+  (degenerate-bimodal; no calibratable middle band). Decomposed per-axis. `07-CALIBRATION.md`.*
+- [x] **CAL-02**: Block and guide thresholds are chosen from that empirical distribution
   and recorded, with rationale, as a committed artifact.
-- [ ] **CAL-03**: Re-validation proves no existing legitimate memory trips the chosen
+  *Done 2026-06-14: the empirical shape **rejects** a scalar threshold (no safe N exists);
+  the per-component contribution table (`per_trigger`) is adopted as the enforcement signal.
+  Recorded with rationale in `07-CALIBRATION.md`.*
+- [x] **CAL-03**: Re-validation proves no existing legitimate memory trips the chosen
   block tier (no false denials of work already in the store); the proof is recorded
   verbatim.
+  *Done 2026-06-14: every scalar block≥N (3..48) false-denies the one path-axis outlier,
+  ≥49 is inert — the bind. The adopted per-component rule false-denies ZERO legitimate
+  memories (outlier → GUIDE-broad, not blocked). Phase-6 WR-01 corpus-deferral closed.*
 
 ### Quality & Coherence (QC)
 
@@ -136,9 +144,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ENF-03 | Phase 8 | Pending |
 | ENF-04 | Phase 8 | Pending |
 | ENF-05 | Phase 8 | Pending |
-| CAL-01 | Phase 7 | Pending |
-| CAL-02 | Phase 7 | Pending |
-| CAL-03 | Phase 7 | Pending |
+| CAL-01 | Phase 7 | Satisfied (live shadow: `[0×9, 48]`) |
+| CAL-02 | Phase 7 | Satisfied (scalar rejected; per-component adopted — `07-CALIBRATION.md`) |
+| CAL-03 | Phase 7 | Satisfied (zero legitimate false-denials; scalar bind recorded) |
 | QC-01 | Phase 5 | Pending |
 | QC-02 | Phase 6 | Pending |
 | QC-03 | Phase 8 | Pending |

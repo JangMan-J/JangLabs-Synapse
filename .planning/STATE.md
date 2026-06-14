@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Write-Time Trigger Quality
-status: planning
-stopped_at: v1.1 roadmap created (Phases 5-8)
-last_updated: "2026-06-13T17:57:09.719Z"
-last_activity: 2026-06-13 — Roadmap for v1.1 created (4 phases, 19 requirements mapped)
+status: in_progress
+stopped_at: Phase 7 complete (scalar rejected; per-component adopted) — Phase 8 pending replan
+last_updated: "2026-06-14T04:05:00Z"
+last_activity: 2026-06-14 — Phase 7 closed: live shadow [0×9,48] rejects scalar threshold; per-component table adopted (CAL-01/02/03 satisfied, verified 4/4)
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  completed_phases: 3
+  total_plans: 2
+  completed_plans: 2
+  percent: 75
 ---
 
 # Project State
@@ -21,14 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-13)
 
 **Core value:** The right memory surfaces at the right moment with zero human curation — and the whole system stays legible and maximum-punch-per-pound while doing it.
-**Current focus:** v1.1 Write-Time Trigger Quality — roadmap created (Phases 5-8); ready to plan Phase 5
+**Current focus:** v1.1 Write-Time Trigger Quality — Phases 5/6/7 complete; **Phase 8 pending substantive replan** around the per-component finding.
 
 ## Current Position
 
-Phase: 6 — Hardened Static Gate
-Plan: 1 of 1 — COMPLETE
-Status: Phase 6 complete; ready for Phase 7 (Shadow Calibration)
-Last activity: 2026-06-13 — Phase 6 Plan 01 executed: LOW_SIGNAL_COMMANDS + broadened _check_triggers deny predicate (391 passed, 10 skipped, 0 failed)
+Phase: 7 — Shadow Calibration — COMPLETE
+Status: Phase 7 closed as a real-demonstration finding — the live corpus REJECTS the scalar block threshold; the per-component contribution table (`per_trigger`) is adopted as the enforcement signal. CAL-01/02/03 satisfied, verified 4/4. Phase 8 (enforcement wiring) must be re-specced before planning — its scalar-threshold premise is superseded.
+Last activity: 2026-06-14 — Phase 7: live shadow over 10 trigger-bearing memories → distinct_count `[0×9, 48]`; lone outlier floods 48 on a single broad path axis; no safe scalar N exists; per-component rule false-denies zero legitimate memories. Artifacts: 07-CALIBRATION.md / 07-VERIFICATION.md / 07-shadow-data.json.
 
 ## Performance Metrics
 
@@ -82,6 +81,12 @@ Recent decisions affecting current work:
 - [v1.1 roadmap] Keystone is one new engine primitive `project_triggers` (Phase 5) that REUSES the existing `compile_trigger_index` / `search` machinery — no second matcher (Principle 6 legibility).
 - [05-01] _walk_index extracted from search(): one shared matcher for both search() and project_triggers() — grep-verifiable (def once, 2 call sites)
 - [05-01] project_triggers fail-open returns fresh dict literal on every path (not shallow copy of _EMPTY_PROJECTION — shallow copy allowed mutation of module constant)
+- [07 CAL — DECISION] **Scalar block threshold rejected on live-corpus evidence.** Live shadow distribution is `[0×9, 48]`: 9 trigger-bearing memories collide with nothing, 1 floods 48-way on a single broad path axis. Every scalar `block≥N` (3..48) false-denies that legitimate memory; `≥49` is inert. No safe, useful scalar threshold exists. (CAL-02/CAL-03, `07-CALIBRATION.md`.)
+- [07 CAL — DECISION] **Per-component contribution table (`per_trigger`, already shipped in Phase 5) adopted as the enforcement signal.** Verdict read from the columns, not a sum: PASS (empty), BLOCK/GUIDE-degenerate (pure command-breadth, all author levers at 0 — the systemic git+stash pattern), GUIDE-broad (breadth on an author-controlled path/arg axis — advisory, never a hard block). No magic N; the block/guide split is structural (which axis carries the breadth).
+- [07 CAL — DECISION] **Root cause of the scalar's failure = lossy sum across axes.** `distinct_count` adds command-breadth (expected) + author-narrowing + broad-parent-path false-breadth into one number; the un-mixing info is destroyed in the sum. Proven on cal-v1: git-status (guide) / git-reset (pass) / git-branch (guide) all = `dc=9, cmd=9, arg=0` — three intended verdicts, one indistinguishable number.
+- [07 CAL] **Path-axis pathology found** (live): a *specific* path can have *broad* effective reach when its parent component (e.g. `~/.claude/`) is common — the path-axis analogue of the git+stash decorative-arg gap. Surfaced per-axis by `per_trigger`; invisible to the scalar.
+- [07 CAL] **Phase-6 WR-01 corpus-deferral CLOSED:** live shadow confirms no trigger-bearing memory is a bare-Tier-B-low-signal-command-only flood; the Phase 6 static gate denies no existing legitimate memory.
+- [07 CAL — REPLAN TRIGGER] **Phase 8 must be re-specced.** Its success criteria reference "distinct-collision count above the block threshold" — that signal is rejected. ENF-01/ENF-03/ENF-04 reframe to the per-component verdict; ENF-04 re-scopes from a block cutoff to an advisory guide-breadth floor (cannot false-deny).
 - [v1.1 roadmap] CAL (Phase 7) is a real-demonstration gate: corpus collision distribution + chosen thresholds + "no legitimate memory trips the block tier" recorded verbatim as a committed artifact. No threshold ships by assertion.
 - [v1.1 roadmap] Phase 6 (hardened static gate) is corpus-independent and may land in parallel with Phase 5 — it needs no projection.
 - [v1.1 roadmap] QC distributed to the phase whose code it tests: QC-01 (projection contract) → Phase 5; QC-02 (gate fixtures) → Phase 6; QC-03 (hook end-to-end) + QC-04 (fail-open/no-mutation/quiet/no-permissions sweep) → Phase 8.
@@ -136,7 +141,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [v1.1 Phase 7] Threshold calibration is the highest-risk decision of the milestone — the v1.0 retrospective burned on mass live mutation (first maintenance pass demoted 22 memories on hours-old telemetry). CAL is a recorded shadow-pass gate precisely to keep enforcement safe; no block threshold ships by assertion.
+- ~~[v1.1 Phase 7] Threshold calibration is the highest-risk decision of the milestone~~ **RESOLVED 2026-06-14:** the shadow pass proved no safe scalar threshold exists; the per-component rule it replaced it with provably false-denies zero legitimate live memories. The mass-false-mutation hazard the CAL gate guarded against cannot occur because the block tier no longer keys on a corpus-tuned cutoff — it keys on a structural per-axis pattern. The original risk is retired, not merely mitigated.
 - [v1.1] Data-safety: `memory/` is a DATA directory (D-52/D-56). No corpus mutation this milestone — the shadow pass reads the corpus, never writes it.
 - [Project] Budgeted parallelism: no serious parallel run without a declared dispatch checkpoint (N agents × model). Note Phase 6 may run alongside Phase 5 if a dispatch budget is declared.
 - [Carried from v1.0] Read-signal proxy needs validation against action-changed once real telemetry accrues (governs the deferred TEL milestone).
