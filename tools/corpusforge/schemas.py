@@ -11,12 +11,15 @@ trigger/memory-quality task for THIS milestone, but the envelope (problems[], ro
 is generic so the harness can target other domains later without a rewrite.
 """
 
-# A manifest problem: an adversarial trigger-authoring scenario plus its intended verdict.
-# `intended_verdict` is the ground truth the rival holds back: what SHOULD happen when a
-# correctly-authored memory for this scenario is run through the write-side engine.
-#   block  — a correct memory here would carry degenerate triggers the gate must DENY
-#   guide  — triggers that pass the gate but collide with existing memories (advisory)
-#   pass   — clean, discriminating triggers that should sail through
+# EVENT-FIRST MODEL (2026-06-14 redesign): a manifest problem is a SITUATION to enact,
+# not a trigger to argue. The two agents work the situation across N turns; the memory and
+# its triggers are distilled AFTERWARD, from the lived exchange. The trap is the situation's
+# pull on memory-FORMATION (why the eventual distilled trigger is likely mis-captured), not
+# a critique of any artifact. `intended_verdict` is the ground truth the rival holds back:
+# what SHOULD happen when the memory a careful actor distills from this event is scored.
+#   block  — the natural lesson here pulls toward degenerate triggers the gate must DENY
+#   guide  — the natural triggers pass the gate but collide with existing memories (advisory)
+#   pass   — a careful actor distills clean, discriminating triggers that sail through
 MANIFEST_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -31,19 +34,24 @@ MANIFEST_SCHEMA = {
                 "type": "object",
                 "additionalProperties": False,
                 "required": [
-                    "id", "title", "scenario", "trap",
-                    "intended_verdict", "reference_solution",
+                    "id", "title", "situation", "complications",
+                    "trap", "intended_verdict", "reference_memory",
                 ],
                 "properties": {
                     "id": {"type": "string"},
                     "title": {"type": "string"},
-                    # What the contender is told (the realistic task framing / incident).
-                    "scenario": {"type": "string"},
-                    # WHY this is expected to trip the contender (rival-only; never shown).
+                    # The realistic event the Rival enacts on turn 1 (no hints, no triggers).
+                    "situation": {"type": "string"},
+                    # Graded reserve pressure the Rival deploys across turns 2..N — ordered
+                    # complications/probing angles consistent with the situation, each a
+                    # realistic development of the event (NOT meta, NOT about triggers).
+                    "complications": {"type": "array", "items": {"type": "string"}},
+                    # WHY the memory distilled from this event is likely mis-captured
+                    # (rival-only; never shown) — the pull on memory-formation.
                     "trap": {"type": "string"},
                     "intended_verdict": {"type": "string", "enum": ["block", "guide", "pass"]},
-                    # The rival's held-back model answer (rival-only; the secret).
-                    "reference_solution": {
+                    # The memory a careful actor SHOULD distill (rival-only; the secret).
+                    "reference_memory": {
                         "type": "object",
                         "additionalProperties": False,
                         "required": ["triggers", "rationale"],
@@ -75,7 +83,10 @@ MANIFEST_SCHEMA = {
     },
 }
 
-# The contender's per-problem output: the memory entry it would write for the scenario.
+# The contender's per-problem output: the memory it DISTILLED from the lived event.
+# `turns` records the duel's N (how many event turns preceded distillation) so the
+# verdict record carries the experimental variable. It is optional — present when the
+# orchestrating workflow stamps it; the contender subagent itself need not emit it.
 CONTENDER_OUTPUT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -87,6 +98,7 @@ CONTENDER_OUTPUT_SCHEMA = {
         "tags": {"type": "array", "items": {"type": "string"}},
         "triggers": {"$ref": "#/$defs/triggers"},
         "reasoning": {"type": "string"},     # the contender's own justification (data)
+        "turns": {"type": "integer"},        # the duel's N (workflow-stamped; optional)
     },
     "$defs": MANIFEST_SCHEMA["$defs"],
 }

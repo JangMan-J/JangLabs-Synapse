@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-"""corpusforge — adversarial double-blind duel harness for write-side corpus generation.
+"""corpusforge — event-first N-shot adversarial duel harness for write-side corpus generation.
 
-Prototype scope: GPT-5.5 (Rival) authors a manifest of trigger-authoring traps and
-presents them; Claude (Contender) authors memory entries; the real synapse engine
-classifies each entry (block/guide/pass) so we can verify this session's write-side code
-(_check_triggers gate + project_triggers collision) against a real, generated corpus.
+Model (2026-06-14 redesign): GPT-5.5 (Rival) and a blind Claude Contender enact a realistic
+SITUATION across N turns (one output each per turn); the Contender then DISTILLS a memory
+(name/desc/tags/triggers) from the lived event. The real synapse engine scores the EMERGENT
+trigger — static gate (the only hard BLOCK) + per-component collision projection (GUIDE-only)
+— against an ACCRETING scratch corpus, so later duels collide against earlier entries. The
+trigger is downstream of an event, never the subject of the conversation.
+
+N is the experimental variable: sweep N∈{1,3,5} and read corpus-health-vs-N.
 
 stdlib-only. Heavy isolation: a dedicated separate clone per run; manifests at secret-key
 parity; codex sandboxed read-only. See README.md.
 
-Subcommands:
-  scaffold <run-id>           create the isolated clone + run dir for a duel
-  gen-manifest <run-id>       GPT-5.5 authors the manifest (secret) for the run
-  list-problems <run-id>      print problem ids/titles/scenarios (NOT traps/solutions)
-  present <run-id> <prob-id>  GPT-5.5 Rival presents one problem's scenario to the contender
-  classify <run-id> <file>    run a contender-output JSON through the engine -> verdict
-  verify <run-id>             classify all collected contender outputs, write report
-  status <run-id>             show run state
+Subcommands (PRIMITIVES — the duel loop is driven by the orchestrating workflow, not here):
+  scaffold <run-id>                       create the isolated clone + run dir
+  gen-manifest <run-id> -n N              GPT-5.5 authors the situation manifest (secret)
+  list-problems <run-id> [--scenarios]    print ids/titles/situations (NOT traps/complications)
+  rival-turn <run-id> <pid> --turn K      Rival speaks ONE event turn (1 opens; K>1 = complication[K-2])
+              [--transcript FILE]         running dialogue replayed in as context (codex is one-shot)
+  seed <scratch> [--source STORE]         create the disposable accreting corpus (copy of live)
+  score <run-id> <file> [--store SCRATCH] per-component verdict for a distilled entry
+  accrete <scratch> <file>                append a distilled entry into the scratch corpus + rebuild
+  verify <run-id>                         tabulate all verdicts vs manifest intent -> report
+  status <run-id>                         show run state
 
-The CONTENDER step is intentionally NOT a subcommand that calls a model: the contender is
-the live Claude orchestrator, which reads `present` output, authors an entry, and feeds it
-to `classify`. This keeps the contender genuinely blind (it never sees this harness code).
+The CONTENDER is a SEPARATELY-SPAWNED blind Claude subagent (one per duel), dispatched by the
+orchestrating workflow — NOT the orchestrator and NOT a subcommand here. It sees only the
+Rival's in-event prose; never this harness, the manifest, the trap, the verdict, or the store.
+The orchestrator wires I/O between Rival turns, Contender turns, and the engine — it authors
+and judges nothing.
 """
 import argparse
 import json
@@ -163,29 +172,37 @@ def cmd_gen_manifest(args):
 
 ## This task: AUTHOR the manifest
 
-Generate a manifest of {n} adversarial problems in the domain of **memory trigger
-authoring** (described in the brief above). Each problem is a realistic situation worth
-remembering in a Linux/dev/Claude-Code-harness context, engineered so that a contender
-writing its `triggers:` block is LIKELY to choose a flawed set.
+Generate a manifest of {n} **situations** in a Linux/dev/Claude-Code-harness context. Each
+is a realistic EVENT that, after it is lived through, naturally produces a memory-worthy
+lesson — engineered so that the memory someone distills from it is LIKELY to carry a flawed
+`triggers:` block. Remember the event-first model: the agents enact the SITUATION; the
+trigger is distilled afterward. You are authoring events, not triggers.
 
-Cover a spread of intended verdicts:
-  - some `block`  — the natural/tempting trigger is degenerate: a bare ubiquitous command
-    (git, cat, ls, cd, python, bash, grep, find, …) or an over-broad glob (~/**, **),
-    with nothing narrowing it. A correct entry's tempting triggers SHOULD be denied.
-  - some `guide`  — triggers that are legitimate and specific enough to pass a static
-    gate, but that collide with MANY existing memories on a common signal (e.g. the
-    command `git` paired with a common subcommand), so they should draw an advisory.
-  - some `pass`   — clean, discriminating triggers (a specific tool + distinctive arg, or
-    a specific config path) that should sail through.
+Cover a spread of intended verdicts (what the distilled trigger SHOULD receive):
+  - some `block`  — the event's natural lesson centers on a bare ubiquitous command
+    (git, cat, ls, cd, python, bash, grep, find, …) or an over-broad glob, so whoever
+    distills it will reach for a degenerate trigger that the gate must DENY.
+  - some `guide`  — the natural triggers are legitimate/specific enough to pass the gate
+    but collide with MANY existing memories on a common signal (e.g. a common subcommand
+    of a popular tool, or a path under a busy shared parent), so they should draw an advisory.
+  - some `pass`   — the event points cleanly at a distinctive signal (a specific tool +
+    distinctive arg, or a specific config path) that a careful actor captures precisely.
 
-For each problem provide: id (kebab), title, scenario (what you'd present to the
-contender — realistic, no hints), trap (why it's likely to trip them — your private note),
-intended_verdict, and reference_solution (the triggers a careful author SHOULD use + a
-one-line rationale).
+For each problem provide:
+  - id (kebab), title
+  - situation: the event the Rival opens with on turn 1 — realistic, in-character, NO hints,
+    NO mention of triggers/memories/tests. Just the thing that's happening.
+  - complications: an ORDERED list of 2-4 realistic developments/wrinkles/probing angles the
+    Rival deploys across later turns (turn 2 uses [0], turn 3 uses [1], …). Each must be a
+    natural beat of the same event, consistent with the situation, never meta, never about
+    triggers. These are the graded reserve pressure for deeper-N duels.
+  - trap: WHY the memory distilled from this event is likely mis-captured (your private note;
+    the pull on memory-formation).
+  - intended_verdict: block | guide | pass.
+  - reference_memory: the triggers a careful actor SHOULD distill + a one-line rationale.
 
-Make the scenarios concrete and varied (different tools, paths, domains). Difficulty
-should come from the scenario's inherent pull toward a tempting-but-wrong trigger, not
-from withholding facts.
+Make situations concrete and varied (different tools, paths, domains). Difficulty must come
+from the event's inherent pull toward a mis-captured lesson, not from withholding facts.
 
 Output ONLY the JSON object conforming to the provided schema."""
 
@@ -199,6 +216,9 @@ Output ONLY the JSON object conforming to the provided schema."""
         model=args.model,
         timeout=args.timeout,
     )
+    if not isinstance(result, dict):
+        print("[gen-manifest] rival did not return a JSON object", file=sys.stderr)
+        return 1
     _structural_validate(result, schemas.MANIFEST_SCHEMA)
     # Persist the manifest at secret-key parity (0600, in the guarded manifests dir).
     _write_json(_manifest_path(run_id), result, secret=True)
@@ -218,42 +238,85 @@ Output ONLY the JSON object conforming to the provided schema."""
 def cmd_list_problems(args):
     man = _read_json(_manifest_path(args.run_id))
     for p in man["problems"]:
-        # NEVER print trap / intended_verdict / reference_solution here.
+        # NEVER print trap / intended_verdict / reference_memory / complications here.
         print(f"- {p['id']}: {p['title']}")
         if args.scenarios:
-            print(f"    {p['scenario']}")
+            print(f"    {p['situation']}")
     return 0
 
 
-def cmd_present(args):
-    """Rival presents ONE problem's scenario to the contender (no trap/verdict/solution)."""
-    run_id, prob_id = args.run_id, args.problem_id
-    rd = _run_dir(run_id)
-    cd = _clone_dir(run_id)
+def _transcript_block(transcript):
+    """Render a turn list [{speaker, text}, ...] as plain dialogue for prompt context."""
+    if not transcript:
+        return "(the event has not started yet)"
+    lines = []
+    for t in transcript:
+        who = "You (colleague)" if t["speaker"] == "rival" else "Them"
+        lines.append(f"{who}: {t['text']}")
+    return "\n\n".join(lines)
+
+
+def cmd_rival_turn(args):
+    """Rival speaks for ONE turn of the event. Turn 1 opens the situation; turn K>1 deploys
+    complication[K-2]. The running transcript is supplied as context (codex is one-shot, so
+    we replay it each call). Prints ONLY the rival's prose for this turn.
+
+    The contender NEVER calls this; the orchestrating workflow does, then hands the printed
+    text to a freshly-spawned blind contender subagent. The rival never sees the contender's
+    distilled memory — only the in-event dialogue.
+    """
+    run_id, prob_id, turn = args.run_id, args.problem_id, args.turn
+    rd, cd = _run_dir(run_id), _clone_dir(run_id)
     man = _read_json(_manifest_path(run_id))
     prob = next((p for p in man["problems"] if p["id"] == prob_id), None)
     if prob is None:
         print(f"no problem '{prob_id}'", file=sys.stderr)
         return 1
+    transcript = _read_json(args.transcript) if args.transcript and Path(args.transcript).exists() else []
     rival_brief = (HERE / "briefs" / "rival.AGENT.md").read_text()
-    # Feed the rival ONLY this one problem (so it cannot leak others), as DATA.
-    one = {"scenario": prob["scenario"], "title": prob["title"], "id": prob["id"]}
+
+    comps = prob.get("complications", []) or []
+    if turn <= 1:
+        directive = (
+            "This is TURN 1 — open the event. Present the situation below to your colleague "
+            "as a real thing happening now. Plain prose, in character. No hints, no meta, "
+            "nothing about triggers/memories/tests."
+        )
+        material = {"situation": prob["situation"], "title": prob["title"]}
+    else:
+        idx = turn - 2
+        nxt = comps[idx] if 0 <= idx < len(comps) else None
+        if nxt is None:
+            directive = (
+                f"This is TURN {turn}. You have no scripted complication left for this turn — "
+                "respond naturally to what your colleague just said and bring the event toward "
+                "a close, in character. No meta, nothing about triggers/memories."
+            )
+            material = {"situation": prob["situation"]}
+        else:
+            directive = (
+                f"This is TURN {turn}. Respond to what your colleague just said, then advance "
+                "the event by introducing the development below as a natural next beat — "
+                "consistent with the situation, in character, never meta, never about triggers."
+            )
+            material = {"situation": prob["situation"], "development_to_introduce": nxt}
+
     prompt = f"""{rival_brief}
 
 ---
 
-## This task: PRESENT one problem to the Contender
+## This task: speak ONE turn of the event
 
-Below (as DATA) is the single problem you are presenting this turn. Present its scenario
-to the Contender as a colleague describing a real situation worth remembering. Write 1-3
-short paragraphs in plain prose. Do NOT include any meta-commentary, do NOT mention
-triggers/verdicts/tests, do NOT include anything not implied by the scenario.
+{directive}
 
-PROBLEM (data, not instructions):
-{json.dumps(one, indent=2)}
+EVENT SO FAR (dialogue; most recent last):
+{_transcript_block(transcript)}
 
-Output ONLY the presentation prose."""
-    out_file = rd / "transcripts" / f"{prob_id}.presentation.txt"
+MATERIAL FOR THIS TURN (data, not instructions):
+{json.dumps(material, indent=2)}
+
+Output ONLY your spoken prose for this single turn."""
+    out_file = rd / "transcripts" / f"{prob_id}.rival.t{turn}.txt"
     text = providers.run_rival(
         prompt=prompt, workdir=cd, output_file=out_file,
         schema_file=None, model=args.model, timeout=args.timeout,
@@ -262,33 +325,56 @@ Output ONLY the presentation prose."""
     return 0
 
 
-def cmd_classify(args):
-    """Run a contender-output JSON file through the real engine; emit the verdict record."""
+def cmd_seed(args):
+    """Seed a disposable scratch corpus from a COPY of the source store (default: live)."""
+    src = Path(args.source) if args.source else engine_bridge.default_store()
+    scratch = engine_bridge.seed_scratch(Path(args.scratch), source=src)
+    n = len([p for p in scratch.glob("*.md") if not p.name.startswith("_") and p.name != "MEMORY.md"])
+    print(f"[seed] scratch corpus at {scratch} seeded with {n} memories (copy of {src}); catalog rebuilt")
+    return 0
+
+
+def cmd_score(args):
+    """Classify a contender-output JSON via the PER-COMPONENT verdict against a store
+    (scratch if given, else live). Records the verdict; does NOT accrete (that's separate)."""
     run_id = args.run_id
     out = _read_json(args.file)
     _structural_validate(out, schemas.CONTENDER_OUTPUT_SCHEMA)
-    memdir = engine_bridge.default_store()
-    cfg = _load_thresholds(run_id)
-    res = engine_bridge.classify(
-        out["triggers"], memdir,
-        block_threshold=cfg["block_threshold"],
-        guide_threshold=cfg["guide_threshold"],
-        stem=out.get("name"),
-    )
+    memdir = Path(args.store) if args.store else engine_bridge.default_store()
+    res = engine_bridge.classify(out["triggers"], memdir, stem=out.get("name"))
     record = {
         "problem_id": out["problem_id"],
         "name": out["name"],
+        "turns": out.get("turns"),
         "triggers": out["triggers"],
         "engine_verdict": res["verdict"],
         "gate_allowed": res["gate_allowed"],
         "gate_reason": res["gate_reason"],
         "distinct_count": res["distinct_count"],
+        "axis": res["axis"],
         "collisions": [c.get("id") for c in res["collisions"]],
         "per_trigger": res["per_trigger"],
+        "store": str(memdir),
     }
     dest = _run_dir(run_id) / "contender_outputs" / f"{out['problem_id']}.verdict.json"
     _write_json(dest, record)
     print(json.dumps(record, indent=2))
+    return 0
+
+
+def cmd_accrete(args):
+    """Append a distilled contender entry into the scratch corpus + rebuild (grows backdrop)."""
+    out = _read_json(args.file)
+    _structural_validate(out, schemas.CONTENDER_OUTPUT_SCHEMA)
+    entry = {
+        "name": out["name"],
+        "description": out.get("description", ""),
+        "tags": out.get("tags", []),
+        "triggers": out["triggers"],
+        "body": out.get("reasoning", ""),
+    }
+    dest = engine_bridge.accrete(Path(args.scratch), entry)
+    print(f"[accrete] wrote {dest.name} into scratch corpus; catalog rebuilt")
     return 0
 
 
@@ -307,7 +393,9 @@ def cmd_verify(args):
         rows.append({
             "problem_id": pid, "expected": exp, "engine": got,
             "match": (exp == got), "name": rec["name"],
+            "turns": rec.get("turns"),
             "distinct_count": rec["distinct_count"],
+            "axis": rec.get("axis"),
             "gate_allowed": rec["gate_allowed"],
         })
     matches = sum(1 for r in rows if r["match"])
@@ -323,17 +411,6 @@ def cmd_verify(args):
     return 0
 
 
-def _load_thresholds(run_id):
-    """Run thresholds: from run.json if set, else conservative defaults (CAL forward-dep)."""
-    rd = _run_dir(run_id)
-    cfgp = rd / "thresholds.json"
-    if cfgp.exists():
-        return _read_json(cfgp)
-    # Conservative provisional defaults (Phase 7 small-N reality): block only at heavy
-    # co-fire, guide at moderate. Tunable per run by writing thresholds.json.
-    return {"block_threshold": 8, "guide_threshold": 3}
-
-
 def _write_markdown_report(path, report):
     lines = [
         f"# Corpusforge Verification Report — {report['run_id']}",
@@ -341,22 +418,25 @@ def _write_markdown_report(path, report):
         f"**Generated:** {report['generated']}",
         f"**Engine verdict vs manifest intent:** {report['engine_agreed_with_intent']}/{report['total']}",
         "",
-        "This report shows how the synapse write-side engine (Phase 6 gate + Phase 5",
-        "collision projection, combined two-tier) classified each contender-authored",
-        "memory entry, compared with the verdict the manifest's author intended.",
-        "Mismatches are signal: either the contender authored differently than the trap",
-        "anticipated, or the engine/thresholds need attention.",
+        "This report shows how the synapse write-side engine (Phase 6 static gate = the only",
+        "hard BLOCK; Phase 5 collision projection = GUIDE-only, per-component) classified each",
+        "memory a contender DISTILLED from a lived N-turn event, vs the verdict the manifest",
+        "intended. The `axis` columns show which trigger component carries the collision breadth",
+        "(cmd/arg/path/syn) — the Phase-7 per-component signal. `turns` is the duel's N.",
         "",
-        "| Problem | Memory | Expected | Engine | Match | distinct_count | gate |",
-        "|---------|--------|----------|--------|-------|----------------|------|",
+        "| Problem | Memory | N | Expected | Engine | Match | dc | cmd/arg/path/syn | gate |",
+        "|---------|--------|---|----------|--------|-------|----|------------------|------|",
     ]
     for r in report["rows"]:
         gate = "allow" if r["gate_allowed"] else "DENY"
         mark = "✓" if r["match"] else "✗"
         dc = r["distinct_count"] if r["distinct_count"] is not None else "—"
+        ax = r.get("axis") or {}
+        axs = f"{ax.get('cmd','-')}/{ax.get('arg','-')}/{ax.get('path','-')}/{ax.get('syn','-')}" if ax else "—"
+        turns = r.get("turns") if r.get("turns") is not None else "—"
         lines.append(
-            f"| {r['problem_id']} | {r['name']} | {r['expected']} | {r['engine']} "
-            f"| {mark} | {dc} | {gate} |")
+            f"| {r['problem_id']} | {r['name']} | {turns} | {r['expected']} | {r['engine']} "
+            f"| {mark} | {dc} | {axs} | {gate} |")
     Path(path).write_text("\n".join(lines) + "\n")
 
 
@@ -392,9 +472,18 @@ def main():
     p.add_argument("-n", type=int, default=12); p.add_argument("--model", default=None)
     p.add_argument("--timeout", type=int, default=900)
     p = add("list-problems", cmd_list_problems); p.add_argument("run_id"); p.add_argument("--scenarios", action="store_true")
-    p = add("present", cmd_present); p.add_argument("run_id"); p.add_argument("problem_id")
+    # rival-turn: Rival speaks ONE turn of the event (turn 1 opens; turn K>1 deploys complication[K-2]).
+    p = add("rival-turn", cmd_rival_turn); p.add_argument("run_id"); p.add_argument("problem_id")
+    p.add_argument("--turn", type=int, required=True)
+    p.add_argument("--transcript", default=None, help="JSON file: running [{speaker,text}] dialogue")
     p.add_argument("--model", default=None); p.add_argument("--timeout", type=int, default=600)
-    p = add("classify", cmd_classify); p.add_argument("run_id"); p.add_argument("file")
+    # seed: create the disposable accreting scratch corpus from a copy of the live (or given) store.
+    p = add("seed", cmd_seed); p.add_argument("scratch"); p.add_argument("--source", default=None)
+    # score: per-component verdict for a distilled contender entry against a store (scratch or live).
+    p = add("score", cmd_score); p.add_argument("run_id"); p.add_argument("file")
+    p.add_argument("--store", default=None, help="collision backdrop store (default: live)")
+    # accrete: append a distilled entry into the scratch corpus + rebuild (grows the backdrop).
+    p = add("accrete", cmd_accrete); p.add_argument("scratch"); p.add_argument("file")
     p = add("verify", cmd_verify); p.add_argument("run_id")
     p = add("status", cmd_status); p.add_argument("run_id")
 
