@@ -1,119 +1,92 @@
-# Corpusforge — Event-First N-Shot Duel Instrument (design)
+# Corpusforge — Live-Harness Firing-Rate Instrument (design)
 
-**Date:** 2026-06-14
-**Status:** design approved (build pending)
-**Supersedes:** the prototype trigger-arguing harness committed in `b36b09a` (kept for reference; its isolation/secret-manifest/codex-seam machinery is reused).
-**Why now:** Phase 7 proved the live corpus (10 trigger-bearing memories) is too thin to decide write-side enforcement. Corpusforge is the instrument that generates the missing data — and the user's vision for it crystallized into something larger than a corpus-filler: a **measurement instrument for the memory-authoring process itself**, sub-project-worthy, of benefit to all future milestones.
-
----
-
-## Two corrections that define this design
-
-The prototype (`cal-v1`) had two structural errors, both caught in design review before the burst:
-
-1. **The orchestrator was the contender.** In `cal-v1` the live Claude orchestrator personally authored the 15 memory entries. That makes the orchestrator a direct party to the exchange — *not* the intended design. **Correction:** the Contender is a *separately spawned* blind Claude subagent, one per duel. The orchestrator wires I/O only — it authors nothing and judges nothing.
-
-2. **The contender argued an artificial trigger.** The prototype had the contender *output a `triggers:` block* and the agents discuss/refine that artifact. Beginning from a conjured trigger creates low-value data — the trigger never arose from a lived event. **Correction:** the two agents interact on a **situation (a realistic event)**; the memory and its triggers are **distilled afterward, from the interaction** — never discussed as an artifact during it. The trigger is the *emergent residue* of a lived event, the way a real memory is captured.
-
-The guiding principle, in one line: **the trigger is downstream of an event, never the subject of the conversation.**
+**Date:** 2026-06-14 (rev 2 — supersedes the rev-1 "duel of briefed agents" framing below the line)
+**Status:** design approved in principle; apparatus build pending operator go-ahead on the rev-2 design.
+**Why this is a sub-project:** it is a containerized real-harness behavioral instrument of standing value to all future milestones — not a Phase-8 component, and not something to build inside an autonomous milestone run.
 
 ---
 
-## The instrument
+## The instrument, corrected (rev 2)
 
-### Per-duel flow
+Four reframings during design review converged here. The earlier framings (orchestrator-as-contender; agents-argue-a-trigger; agents-briefed-on-the-memory-system) were all variants of the same error: **treating memory-authoring as an instructed task.** The real instrument measures the **unaltered live mechanism firing on its own.**
+
+### What we are actually measuring
+
+The memory-recording mechanism on this box is the **"Reflection trigger (knowledge accretion)" instruction in `~/.claude/CLAUDE.md`** (lines 64–71): after a non-trivial task, *the model itself* decides whether a `[Rewire]`/`[Misfire]`/feedback moment occurred and **saves a memory of its own accord, before ending the turn.** The write *hooks* (`memory-write-guard`, `memory-write-context`) only validate/enrich once the model has already decided to write. The firing decision is a **model judgment**, driven by the live CLAUDE.md, operating on the lived conversation.
+
+> **The measurement:** given N turns of a stimulated-but-natural conversation, how often does the live, unaltered memory mechanism actually fire and record a memory — the same judgment that records memories in real sessions on this box — and how does N drive that **firing rate**?
+
+This is NOT "can an agent write a good trigger." It is "does the real system, untouched and unaware, capture a memory when a conversation gives it something worth capturing."
+
+### Hard invariants (the corrections, as rules)
+
+1. **The contender knows NOTHING about the memory system.** No brief, anywhere in its instruction set, mentions memory/triggers/this study. It is a vanilla Claude Code session. Its only "knowledge" of memory is whatever the real `~/.claude/CLAUDE.md` gives every session on this box — which is the point.
+2. **The contender runs the ACTUAL harness, in isolation.** Real `~/.claude/CLAUDE.md`, real hooks, real (throwaway COPY of the) memory store, real recall — in a **Docker container** (operator-chosen substrate). The live box and live store are never touched.
+3. **The memory is RECORDED by the live mechanism, never distilled by an instructed step.** We do not ask the contender to "write a memory." We stimulate a conversation and watch whether its own reflection judgment fires.
+4. **Both agents stay interactive (subscription, cache-warm) — never `claude -p` / `codex exec`.** Per [[claude-code-subscription-vs-agentsdk-credit-billing]], headless hits capped-credit→API billing (cutover 2026-06-15) and throws away the warm cache. Operator decision: **interactive PTY in the container, riding the subscription.**
+
+### The metric (rev 2)
+
+- **Primary:** P(the live mechanism fires | N) — the firing/recording rate as a function of interaction depth.
+- **N ≥ 2 always.** N=1 (one output each) has no *interaction* to reflect on; the reflection judgment needs a task with an arc. Sweep starts at N=2.
+- **"Health"/quality of the recorded trigger is explicitly DEFERRED** — a later burst with a later definition. This burst measures *yield* (does it fire), not quality. One tool, many purposes (operator's framing).
+- **Detection = write-hook invocation log** (operator-chosen): instrument the container's `memory-write-guard`/`memory-write-context` to log every invocation, capturing fired-clean vs fired-but-gate-blocked vs never-fired. Richer than file-watching alone.
+
+---
+
+## Apparatus (built on proven prior art: turnbridge)
+
+`~/JangJunk/tools/turnbridge` ([[rewire-agent-review-bridge-no-headless]]) already solves the hard parts of bridging two interactive TUI agents via **on-disk session logs + tmux bracketed-paste, never a headless spawn** — built on the *same* subscription/cache constraint. Corpusforge's contender bridge adapts that pattern. Reusable pieces:
+
+- **Turn boundary** = Claude **Stop hook** (stdin: `session_id`, `transcript_path`).
+- **Extract a turn** = transcript slice from last real user prompt to EOF, with the battle-tested `toolUseResult` guards (`type=="object"` before indexing; `structuredPatch != null` to exclude subagent results; C0-control-byte scrub; `jq -Rsc`).
+- **Deliver into a TUI** = `tmux load-buffer` → `paste-buffer -p` (bracketed) → separate `send-keys Enter`.
+- **Read the peer's reply off disk** (no scrape), pinning the rollout at arm time.
+- **Fail-open hooks** (`set -uo pipefail`, never `-e`).
+
+### Roles
+
+- **Rival** — interactive `codex` (GPT-5.5) in a tmux pane; stimulates a conversation engineered to *contain* a genuine `[Rewire]`/`[Misfire]`/lesson moment, so the contender's own reflection judgment is likely to fire. Holds the secret manifest as DATA. Never mentions memory/triggers.
+- **Contender** — interactive `claude` in a Docker container running the real harness; a vanilla session that just does the work. Unaware of the study. Its Stop hook is the turn-boundary signal; its write hooks are instrumented to log firing.
+- **Bridge** — the turnbridge-pattern wiring: Rival turn → (extract) → paste into Contender TUI → Contender works → (Stop hook) → extract → paste into Rival → … for N turns. Orchestrator wires only.
+
+### Per-run flow
 
 ```
-Rival (GPT-5.5, codex exec)              Contender (blind Claude subagent)
-  holds the manifest problem:              sees ONLY the situation as presented;
-  situation + graded complications +       never the harness, manifest, trap,
-  trap + intended verdict + reference      verdict, solution, or the orchestrator
-        │
-        ▼
-  turn 1: present the situation  ───────►  turn 1: act in the event (do the work,
-                                                    reason, respond — NOT triggers)
-  turn 2: deploy complication #1 ◄───────         (Rival reads Contender's turn)
-        │ (consistent w/ manifest,    ───────►  turn 2: continue the work
-        │  never leaks trap/verdict)
-        ⋮  (N turns total; one output each per turn)
-        ▼
-                              [event concludes after turn N]
-                                          │
-                                          ▼
-  turn N+1 (distillation, SAME Contender): reflect on what just happened and
-     author the memory — name / description / tags / triggers — as a person
-     capturing their own lesson. The triggers block is an EMERGENT extraction
-     from the transcript, authored once, at the end.
-                                          │
-                                          ▼
-                        Engine scores the emergent trigger:
-                          - static gate (Phase 6 _check_triggers)
-                          - per-component projection (Phase 5 project_triggers)
-                            against the ACCRETING scratch corpus
-                          - full per-component table recorded (per_trigger)
+scaffold container (real ~/.claude harness + throwaway store copy + instrumented write hooks)
+   │
+   ▼
+N turns: Rival(stimulate) ⇄ Contender(work)  — bridged via disk+tmux paste, both interactive
+   │
+   ▼  (no instructed distillation step — the contender's OWN reflection trigger may fire ANY turn)
+detect: did the instrumented write hooks fire?  (clean record | gate-blocked attempt | never)
+   │
+   ▼
+record {problem_id, N, fired?, verdict-if-fired, the recorded memory if any}
 ```
 
-- **Distiller = the Contender itself** (self-distills at the end), like a person capturing their own lesson. Accepted mild observer effect (it knows a memory will be extracted); chosen over a third neutral scribe for simplicity and because self-capture is the realistic analogue.
-- **N = number of turns** (one output from each side per turn). N is the experimental variable.
+### The experiment
 
-### The N-sweep experiment
-
-N is not just a budget unit — it is a **dimension we sweep**. Run cohorts at **N ∈ {1, 3, 5}** and discover the **ratio/curve of N against corpus health**: does a deeper adversarial event (more turns of real work under graded complication) cause the actor to distill a *healthier* memory than a one-shot event?
-
-- **Budget is turns, not duels.** A turn = one output from each side. An N=5 duel spends 5 turn-pairs; an N=1 duel spends 1. ~120 turns is the working budget unit.
-- **Allocation: pilot first.** Run a small *balanced* pilot (a few duels at each N) to see whether N visibly moves health *at all*; then allocate the bulk of the budget toward wherever the signal is, rather than committing the full split blind. (User decision: "pilot first, then allocate.")
-
-### Corpus health — the y-axis (deferred to the pilot)
-
-Every signal needed is emitted by the engine for free, so the health *definition* is deferred to the pilot (user: "decide after a pilot cohort"). Candidate components, all recorded per entry regardless:
-- static-gate pass/fail,
-- total `distinct_count`,
-- per-axis attribution (breadth carried by author-controlled arg/path/synonym vs bare command-breadth — the Phase-7 quality definition),
-- trap outcome (did the emergent trigger match the manifest's intended block/guide pitfall, or escape clean) — the adversarial-efficacy dimension.
-
-The pilot decides which of these (engine-only vs engine + trap-outcome) cleanly separates the N cohorts; that becomes the health metric for the full burst.
+Sweep N ∈ {2, 3, 5} (operator may widen). Multiple bursts are expected (operator: "money and time"). Per-cohort firing rate = fires / duels. Plot P(fire | N).
 
 ---
 
-## The accreting scratch corpus (the fix for "no corpus with enough data")
+## Build order (rev 2)
 
-The prototype projected every entry against the *same fixed* 10-memory live store — so 100 generated entries would each still see only the original 10. The instrument must **accrete**:
+1. **Write/commit this design** (done) — no more code ahead of the design.
+2. **Container image**: base + Claude Code (native binary) + jq/python3/bash + the real `~/.claude/` harness mounted/copied + throwaway store copy + instrumented write hooks. Prove a vanilla interactive `claude` session runs in it on the subscription via PTY.
+3. **Adapt the turnbridge bridge** for Rival(codex)⇄Contender(containerized claude); prove a single 2-turn duel end-to-end with real firing detection.
+4. **Pilot**: balanced N∈{2,3,5}, small; confirm the bridge is robust and firing is detected.
+5. **Burst(s)**: scale; compute P(fire | N).
+6. **Feed back** to Phase 8 (the enforcement-posture decision now has real firing-behavior data behind it).
 
-- The burst runs against a **disposable scratch store** (`~/.corpusforge/corpus/<burst-id>/`), seeded from a **copy** of the live store (never the live store itself — D-52/D-56 data-safety; fully reversible).
-- Each accepted distilled entry is **written into the scratch store and the scratch catalog rebuilt**, so later duels project against a *growing* corpus. The collision distribution fills naturally as the burst proceeds.
-- The live box-brain store is never mutated. (User: "decide [whether to curate entries into the real store] after seeing volume" — promotion, if ever, is a separate operator-gated step, out of scope for the burst itself.)
-
----
-
-## What changes in the tool (tuning checklist)
-
-Reuse as-is: isolation/clone machinery, secret-manifest at 0600, the `providers.run_rival` codex seam, the structural validator, `engine_bridge` import-the-real-engine pattern.
-
-Rewire:
-1. **Manifest schema + rival brief** — from "scenario + trigger-trap" to **situation + graded complications + memory-formation trap + intended verdict + reference memory**. The trap is now *the event's pull on memory-formation*, not a critique of a trigger artifact.
-2. **Contender brief** — from "author a triggers block" to **"act in this event"** for turns 1..N, then **"distill the memory you'd capture"** at turn N+1. Functionally blind (never says test/simulation).
-3. **N-shot duel loop** — a new driver that alternates Rival/Contender for N turns, threading the transcript, then triggers distillation. Rival turns 2..N deploy graded complications from the manifest.
-4. **Rival multi-turn** — `codex exec` is one-shot/ephemeral; multi-turn Rival replays the running transcript into each call (stdin), staying stateless per call but coherent across turns.
-5. **Contender = spawned subagent** — the orchestrator dispatches a blind Claude subagent per duel (via the Workflow fan-out), never authoring itself.
-6. **Per-component verdict** — replace the scalar `classify` (`distinct_count >= block_threshold`) with the Phase-7 per-component reading; record the full table. (Scalar is dead per Phase 7.)
-7. **Accreting scratch corpus** — write accepted entries into a growing scratch store + rebuild catalog between duels.
-8. **N-vs-health analysis** — a `report` mode that buckets by N and computes the candidate health components per cohort.
-
-Constraints preserved: stdlib-only Python; codex sandboxed read-only on the isolated clone; manifests injection-treated (DATA not instructions); orchestrator wires I/O only.
+The earlier CLI primitives (rival-turn / score / accrete / seed) and the per-component verdict remain useful for the *scoring* side of any recorded memory, but the **contender is no longer a CLI step or a spawned subagent** — it is a real session in a container. The orchestrator authors and judges nothing.
 
 ---
 
-## Build order
+<details>
+<summary>rev 1 (SUPERSEDED) — duel of briefed agents</summary>
 
-1. **Rewire the tool solo/serially** (one codebase, shared state — depth on one stateful thing, not a fan-out). Unit-prove each piece against a sample before any dispatch.
-2. **Generate manifest(s)** via GPT-5.5 Rival (situation + graded complications).
-3. **Run the balanced pilot** as a Workflow fan-out (independent duels at N∈{1,3,5}).
-4. **Decide** health metric + budget allocation from the pilot.
-5. **Fire the burst**; build the accreting corpus; compute the N-vs-health curve.
-6. **Feed the result back** to the Phase 8 enforcement-posture decision (now with real distribution behind it).
+Rev 1 framed the contender as a spawned blind subagent that, after an N-turn event, was *instructed* to distill a memory (name/desc/tags/triggers), which the engine then scored. This was superseded because (a) instructing "now write a memory" makes the memory assigned, not emergent — the opposite of how the live mechanism works; and (b) any brief describing the memory system contaminates the very judgment being measured (the rev-1 reference duel's "trap escape" was traced to the brief feeding the contender the precision-over-recall rule). The rev-1 CLI rewire (event-first manifest, multi-turn rival-turn, per-component verdict, accreting scratch corpus) is committed at `d3e83d5` and its scoring half is reusable; its contender half is replaced by the rev-2 containerized-real-harness design above.
 
----
-
-## Relationship to the milestone
-
-Corpusforge is **graduating out of Phase 8** into its own sub-project (`tools/corpusforge/`), of standing value to all future milestones — it is the project's corpus/authoring-process measurement instrument, not a Phase-8 component. This sub-phase (call it Phase 7.5) produces the data that unblocks the Phase 8 enforcement-posture decision. Phase 8 itself (wiring the per-component verdict into the two write hooks) follows, informed by the burst.
+</details>
