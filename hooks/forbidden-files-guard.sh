@@ -26,6 +26,11 @@ forbidden() {
     */.gnupg/*) return 0 ;;
     */.aws/credentials|*/.aws/config) return 0 ;;
     */.netrc) return 0 ;;
+    # Corpusforge manifests hold held-back reference solutions for the duel harness —
+    # treated at secret-key parity (never committed; written only by the tool with 0600,
+    # never by hand via Edit/Write). The path pattern is the guard, not the bare name.
+    */.corpusforge/manifests/*.json) return 0 ;;
+    */corpusforge/manifests/*.json) return 0 ;;
   esac
   return 1
 }
