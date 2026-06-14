@@ -85,7 +85,26 @@ consistent, and turns the finding into a sharper gate + clearer author guidance.
 mean Phase 6's "an arg rescues a low-signal command" needs refining to "a *routable* arg
 or specific path rescues it."
 
+## Resolution (operator decision, 2026-06-13): **(A)**
+
+Keep the projection==recall invariant. Adopt: **only a routable arg (present in the
+`byArg` index) or a specific (non-broad) path counts as narrowing** a low-signal command.
+Consequences folded into the remaining milestone:
+
+- **Phase 6 amendment:** the static gate's "an arg rescues a low-signal command" becomes
+  "a *routable* arg OR a specific non-broad path rescues it." An arbitrary unknown arg no
+  longer auto-passes a bare low-signal command. (The gate needs the catalog's `byArg` to
+  test routability; if the catalog is unavailable it must fail OPEN — treat any arg as
+  rescuing — so the gate never hard-denies on missing infra.)
+- **Phase 8:** the corpus tier and the gate now agree; deny/guide messages tell the author
+  to add a *routable* arg (one the grammar recognises) or a specific path — and, where
+  apt, to add the arg to the grammar `args:` vocabulary so it becomes routable.
+- **Author's fix for `git`+`stash`:** add `stash` to the grammar `args:` (making it
+  routable) OR trigger on a specific path. Either makes projection==recall narrow correctly.
+
+This turns the false-block into correct, actionable behavior and keeps both tiers honest.
+
 ## Status
 
-Recorded, not yet acted on. The Corpusforge harness is committed and working; this is its
-first real catch. The operator was consulted before Phase 8 changes the enforcement model.
+Resolved (A); folding into Phase 6 amendment + Phase 8. Corpusforge harness committed and
+working — this was its first real catch.

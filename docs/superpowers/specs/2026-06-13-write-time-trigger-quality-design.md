@@ -101,6 +101,16 @@ returns scored hits; `compile_trigger_index` already builds the inverted tables
 synthetic evidence event from the proposed triggers, run it through the existing index,
 count distinct other memories that match." No new matching engine.
 
+> **Amendment (2026-06-13, decision A — from Corpusforge finding
+> `findings/corpusforge-arg-narrowing-projection-gap.md`):** "a narrowing arg rescues a
+> low-signal command" means a **routable** arg — one present in the `byArg` index — OR a
+> specific non-broad path. An arbitrary *unknown* arg does NOT narrow recall (args route
+> only against the curated `byArg` vocabulary), so it must not auto-rescue a low-signal
+> command at the static gate, or the gate and the corpus tier disagree and a good-faith
+> narrowed memory gets false-blocked. This keeps projection == recall. The gate's
+> routability test reads the catalog's `byArg`; if the catalog is unavailable the gate
+> fails OPEN (treats any arg as rescuing) so it never hard-denies on missing infra.
+
 ## Components
 
 ### Component 1 — `project_triggers(memdir, triggers)` → projection result (NEW)
