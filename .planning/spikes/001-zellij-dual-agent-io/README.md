@@ -53,18 +53,36 @@ Other verified spawn facts:
   ~1s to become listable (poll `list-sessions` before issuing actions, or you race a
   not-yet-created session).
 
-### Selective input — `write-chars -p` + `write -p ... 13`
+### Selective input — THREE primitives, not one
+
+The original spike used only `write-chars` + `write`. A later command sweep (2026-06-15,
+verified live) found the input surface is actually **three complementary primitives** — pick
+by what you're sending:
 
 ```
-zellij --session NAME action write-chars -p terminal_N "text"   # types into exactly that pane
+zellij --session NAME action write-chars -p terminal_N "text"   # types text into exactly that pane
 zellij --session NAME action write       -p terminal_N 13       # byte 13 (CR) = Enter, submits
+zellij --session NAME action paste       -p terminal_N "text"   # bracketed-paste a text block
+zellij --session NAME action send-keys   -p terminal_N "Ctrl c" # named CONTROL keys (NOT text)
 ```
 
-- **Isolation verified:** a marker written to one `terminal_N` appears only in that pane's dump
-  and is absent from the sibling.
+| Primitive | Sends | Use for | Gotcha |
+|-----------|-------|---------|--------|
+| `write-chars -p` | literal text, char-by-char | normal typing into a REPL | needs a following `write -p N 13` to submit |
+| `write -p N <byte>` | one raw byte | CR=13 to submit; other control bytes | LF=10 is **not** a safe universal Enter |
+| `paste -p` | text via **bracketed-paste mode** | multi-line / agent-prompt blocks the TUI should treat as one paste, not keystrokes | — |
+| `send-keys -p` | **key NAMES** (`Ctrl c`, `Enter`, `Esc`, `F1`, arrows) | interrupt an agent, navigate onboarding gates, escape menus | **NOT a text typer** — a multi-char token like `"HELLO"` errors `exit 2: unsupported key` |
+
+- **Isolation verified (all primitives):** a marker written to one `terminal_N` appears only in
+  that pane's dump and is absent from the sibling. `paste -p` verified live: marker 2× in target,
+  0× in sibling.
 - **Focus is NOT required** — `-p` alone targets the pane even when focus is elsewhere.
 - **CR (13), not LF (10):** CR is the byte that actually *executes* a line at an interactive
   REPL prompt (the claude/codex case).
+- **`send-keys` is the only way to send control/navigation keys** — `Ctrl c` to interrupt a
+  runaway claude, `Enter`/arrows to advance codex's onboarding gates. Verified: `Ctrl c` landed
+  (`^C` in the dump); a plain text token was rejected `exit 2`. It complements, does not replace,
+  `write-chars`.
 - Multi-word / special chars / very long (300+ char) strings round-trip **verbatim**; the
   *launching shell's* quoting is the only escaping surface (zellij does no expansion).
 - **Silent-drop gotcha:** writing to a nonexistent pane id exits 0 with no error and discards
@@ -85,10 +103,97 @@ VAR=$(zellij --session NAME action dump-screen -p terminal_N 2>/dev/null)   # st
 - `--full` adds scrollback; `--ansi` preserves color; `--path FILE` writes to file and emits
   **nothing** on stdout (so `--path` and capture-to-var are mutually exclusive).
 - **Snapshot, not a stream:** one frozen frame per call. To *follow* a redrawing TUI you poll.
+  **→ But polling is the wrong primitive — see `subscribe` below.**
 - **Alt-screen hides primary scrollback** by design — `--full` won't recover shell history that
   preceded the TUI launch.
 - **Silent-empty gotcha:** an invalid/stale pane id dumps empty + exit 0 — indistinguishable
   from a genuinely blank pane. Resolve ids first; treat empty dumps with suspicion.
+
+### Selective output — `subscribe` (the push-stream the original spike missed)
+
+The original spike polled `dump-screen` ("to follow a redrawing TUI you poll"). zellij 0.45
+ships a **purpose-built push stream** the spike never evaluated. Verified live 2026-06-15:
+
+```
+zellij --session NAME subscribe -p terminal_N --format json          # one pane, push on change
+zellij --session NAME subscribe -p terminal_0 -p terminal_1 -f json  # MULTIPLEX both in one stream
+```
+
+- **Push, not poll:** on connect it emits one `{"is_initial":true,...}` full-viewport frame, then
+  emits `{"is_initial":false,...}` **delta frames only when the pane content actually changes**.
+  Verified: a write produced exactly one delta frame carrying the new marker.
+- **Multiplex confirmed:** a single `subscribe -p t0 -p t1` process carries **both** panes' updates
+  in one stream, each record tagged with its `pane_id` + `viewport[]` array. Verified: t1's marker
+  appeared in a `terminal_1` record, 0 leak into `terminal_0` records. One subscriber → N panes.
+- **This is the correct read path for a multi-agent switchboard** — instead of two polling loops
+  diffing snapshots, one stream pushes tagged deltas as either agent emits output.
+- `--ansi` preserves styling; `--scrollback [N]` includes scrollback in the initial frame.
+- **`watch` is NOT the headless equivalent.** `zellij watch SESSION` is an interactive read-only
+  *attach* — verified to **panic headless** (`rc=101: could not enable raw mode: No such device or
+  address`) because it needs a real TTY. `subscribe` is the headless/non-TTY read-follow; `watch`
+  is for a human at a terminal.
+
+## Command surface (broader sweep, 2026-06-15)
+
+The original spike was built on three primitives discovered piecemeal (`-n` spawn,
+`write-chars`/`write`, `dump-screen`). A later systematic sweep of the full `zellij` CLI
+surface found several relevant commands the spike never evaluated. Headline candidates were
+**verified live**; the rest are doc-surveyed. Discipline unchanged: docs misreport here, so
+every "verified" row below was observed on `zellij 0.45.0` on this box.
+
+| Command | What it does | Verdict | Evidence |
+|---------|--------------|---------|----------|
+| `subscribe -p … -f json` | push stream of viewport deltas, multi-pane, pane_id-tagged | **ADOPT (read path)** | verified — replaces dump-screen polling |
+| `paste -p` | bracketed-paste text block | **ADOPT (text input)** | verified — isolation clean |
+| `send-keys -p` | named control keys (`Ctrl c`, `Enter`, `Esc`) | **ADOPT (control keys)** | verified — `Ctrl c` landed; text token → exit 2 |
+| `run --close-on-exit` | run cmd in new pane; **auto-close pane when cmd exits** | **ADOPT — closes caveat #1** for spawned panes | verified — dead-cmd pane self-removed; without it, lingered |
+| `run --block-until-exit[-success/-failure]` | synchronous exec — block until cmd exits | **ADOPT (sync steps)** | verified — blocked 1.5s, exit 0 |
+| `clear -p` | reset one pane's buffer | adopt-when-needed | verified — selective (t1 cleared, t0 untouched) |
+| `watch SESSION` | interactive read-only attach | **REJECT for headless** | verified — panics headless (no TTY) |
+| `rename-pane -p` / `rename-session` | stable human labels (TITLE only; still address by `terminal_N`) | hygiene | doc |
+| `save-session` | force session state to disk | maybe (resilience) | doc |
+| `list-clients` | attached-operator awareness | informational | verified empty headless |
+| `web --start` | serve session over HTTP port | out-of-scope here (see iso map) | doc — next spike |
+| `pipe` / `plugin` / `launch-plugin` | plugin/event path (`PaneRenderReport`) | out-of-thesis (needs plugin) | doc — the richer ceiling |
+
+**Two highest-leverage findings of the sweep:**
+1. `subscribe` (read) + `paste`/`send-keys` (write) rebuild **both** I/O paths better than the
+   spike's primitives — push stream instead of polling; bracketed-paste + control-keys instead of
+   raw-bytes-only.
+2. `run --close-on-exit` **eliminates caveat #1** (the dead-but-present-pane false-success send)
+   for any pane the tool spawns via `run` — a dead command closes its pane instead of lingering to
+   swallow writes. (Layout-launched agent panes that exit still need the echo-back probe; the
+   long-lived claude/codex case never triggers it anyway.)
+
+**Parallel-server isolation (verified, relevant to a multi-agent build):** two zellij servers
+started under separate `ZELLIJ_SOCKET_DIR`s are fully independent control planes — server A's
+`list-sessions` saw **0** of server B's sessions and vice versa. So N agents can each drive their
+own server with **zero pane crosstalk**, no container needed. This is the cheap isolation floor for
+parallel-live multi-agent driving (heavier isolation — containers/sandboxes/VMs — is the *next*
+spike's concern, not this one).
+
+## Isolation transport map (forward-looking — for the isolation spike)
+
+The next spike runs **this tool inside an isolation layer** (container / sandbox / VM). Which
+commands stay viable depends on **where the driver sits relative to the zellij server**, and each
+command crosses an isolation boundary by a different transport. Two topologies:
+
+- **Arch-1 — driver INSIDE** the box (zellij server + agent panes + driver all in one
+  container/VM). Nothing changes: same-host CLI, every command above applies unchanged. The
+  isolation spike's job is just "build the box, run the tool in it." Cheapest; likely first.
+- **Arch-2 — driver OUTSIDE**, zellij server sealed inside. Now transport matters:
+
+| Command family | Cross-boundary transport | Arch-2 viability |
+|----------------|--------------------------|------------------|
+| `action` family (`write-chars`/`paste`/`send-keys`/`write`/`dump-screen`/`clear`) | talks to server over a **named socket** in `$ZELLIJ_SOCKET_DIR` | host CLI can't see a container's socket unless bind-mounted in → use `<runtime> exec … zellij action …` **or** bind-mount the socket dir |
+| `subscribe -f json` | **stdout stream** | **best cross-boundary read path** — `<runtime> exec … zellij subscribe` pipes tagged deltas over plain stdout, no socket-share, no port |
+| `web --start` | **HTTP on a port** | cross the boundary with a published port instead of a shared socket — the natural Arch-2 *operator* surface |
+| `run --block-until-exit` | blocks the calling CLI | works under `exec`, but couples the host process to the guest pane lifecycle |
+
+> Note: the isolation runtime is the next spike's choice. This box already has
+> `systemd-nspawn` (near-docker), `bwrap`, `podman`, and `unshare` installed; `qemu` and
+> Firecracker are **not** installed. None of that is exercised in *this* spike — recorded here
+> only so the isolation spike inherits a transport map rather than rediscovering it.
 
 ## How to Run
 
@@ -196,6 +301,12 @@ the fix below) removes the now-empty state dir; no sessions leaked, operator ses
   is no reliable `list-panes` signal for "command done, shell lingering"; fully closing it needs an
   **echo-back probe** (write a sentinel, re-dump, confirm) — the #1 hardening item before tool-ization.
   Long-lived claude/codex never trigger this.
+  **UPDATE (2026-06-15, verified live):** `run --close-on-exit` **eliminates this caveat for any
+  pane the tool spawns via `run`** — when the command exits, zellij removes the pane instead of
+  leaving it to swallow writes (verified: a `--close-on-exit` pane self-removed on cmd exit; the
+  same `run` without the flag left a lingering pane). The echo-back probe is now only needed for
+  *layout*-launched panes (the two agent panes) if their command exits — which long-lived
+  claude/codex does not.
 - **codex onboarding gates.** codex boots into trust-directory then hooks-review gates and does not
   reach a usable REPL without keypresses. Input advances it and output is readable, but a full codex
   model-answer round-trip was not reachable in one shot. claude worked end-to-end.

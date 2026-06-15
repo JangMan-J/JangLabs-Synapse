@@ -148,6 +148,12 @@ None yet.
 
 *(Resolved 2026-06-12: Phase 1 dark-memory placement fixed — ORG-04 complete. Phase 2 p95 budget closed — gate recalibrated to ≤55ms operator-approved, new path measures 48–54ms.)*
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260615-4i3 | Spike-001 command-surface broadening + both-topology isolation transport map (live-verified) | 2026-06-15 | ed92b83 | [260615-4i3-spike001-command-surface-iso-map](./quick/260615-4i3-spike001-command-surface-iso-map/) |
+
 ## Deferred Items
 
 Items acknowledged and carried forward; out of scope for v1.1.
