@@ -5,7 +5,7 @@ milestone_name: Write-Time Trigger Quality
 status: in_progress
 stopped_at: Phase 7 complete (scalar rejected; per-component adopted) — Phase 8 pending replan
 last_updated: "2026-06-14T04:05:00Z"
-last_activity: 2026-06-14 — Phase 7 closed: live shadow [0×9,48] rejects scalar threshold; per-component table adopted (CAL-01/02/03 satisfied, verified 4/4)
+last_activity: 2026-06-16 — Quick task 260616-1pm: added scripts/lint.sh (manual shellcheck runner, not a hook) + .claude/agents/hook-reviewer.md (read-only invariant reviewer)
 progress:
   total_phases: 4
   completed_phases: 3
@@ -153,6 +153,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260615-4i3 | Spike-001 command-surface broadening + both-topology isolation transport map (live-verified) | 2026-06-15 | ed92b83 | [260615-4i3-spike001-command-surface-iso-map](./quick/260615-4i3-spike001-command-surface-iso-map/) |
+| 260616-1pm | Two harness automations: scripts/lint.sh (manual shellcheck runner, not a hook) + hook-reviewer read-only invariant subagent | 2026-06-16 | 1a8168d | [260616-1pm-add-two-harness-automations-scripts-lint](./quick/260616-1pm-add-two-harness-automations-scripts-lint/) |
 
 ## Deferred Items
 
@@ -165,8 +166,8 @@ Items acknowledged and carried forward; out of scope for v1.1.
 
 ## Session Continuity
 
-Last session: 2026-06-13
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-06-15
+Stopped at: Session resumed — Phase 7 complete (scalar rejected, per-component adopted); proceeding to re-spec + plan Phase 8 (Corpus-Aware Enforcement Wiring) around the per-component verdict.
 Resume file: None
 
 ## Operator Next Steps
