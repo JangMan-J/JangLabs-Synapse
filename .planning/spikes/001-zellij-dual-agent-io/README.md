@@ -21,6 +21,15 @@ This is the crude feasibility floor for any future "operator's switchboard over 
 terminals" tool: can one external process drive and observe two independent agent panes
 **selectively**, purely through the zellij CLI, with no plugin and no attach?
 
+**PURPOSE (corrected, 2026-06-15):** The framing above — "operator's switchboard over two
+agentic terminals" — was an early mis-scope. The switchboard belongs to the **sibling
+`switchtail` lab** (a zellij plugin project). The actual purpose of this spike, now settled,
+is: **feasibility groundwork for synapse's own corpus-generation harness** — a tool that runs
+real agent help-sessions (a simulated-user `seeker` ⇄ a vanilla, unaware `helper` Claude) to
+generate memory-corpus data at scale by capturing what the live memory mechanism records. The
+selective-I/O plumbing validated here is the substrate layer (`Substrate` in CONTEXT.md) that
+spawns, delivers, and isolates those sessions.
+
 ## Research
 
 All primitives were verified **live** against `zellij 0.45.0` on this box (three parallel
@@ -52,6 +61,14 @@ Other verified spawn facts:
 - A `script -qec` PTY boot is required so alt-screen TUIs actually render; the session takes
   ~1s to become listable (poll `list-sessions` before issuing actions, or you race a
   not-yet-created session).
+  **CORRECTION (2026-06-15):** The PTY requirement above applies to the **interactive `-n`
+  spawn path** (the path this spike's `drive.sh` uses). It is **NOT required for the
+  headless corpus-capture use case.** Verified live on zellij 0.45.0: `zellij attach
+  --create-background <SESSION>` spawns a fully drivable headless session with no `script`/PTY
+  wrapper — listable in ~0.4s, and `run`/`list-panes`/`action`/`subscribe` all work against it
+  immediately. Use `attach --create-background` for the corpus tool's seeker+helper sessions;
+  use `-n` + `script` for an interactive/operator session where alt-screen TUI rendering for a
+  human is required. The two paths are complementary, not contradictory.
 
 ### Selective input — THREE primitives, not one
 
@@ -127,6 +144,14 @@ zellij --session NAME subscribe -p terminal_0 -p terminal_1 -f json  # MULTIPLEX
   appeared in a `terminal_1` record, 0 leak into `terminal_0` records. One subscriber → N panes.
 - **This is the correct read path for a multi-agent switchboard** — instead of two polling loops
   diffing snapshots, one stream pushes tagged deltas as either agent emits output.
+  **CORRECTION (2026-06-15):** For the corpus tool specifically, `subscribe` is **liveness
+  only**, not the capture surface. Its role is confirming that a delivered turn actually landed
+  in the target pane (closing the spike's dead-but-present-pane caveat). Transcript capture
+  comes **off-disk**: each agent's structured JSONL (`~/.claude/projects/<slug>/<uuid>.jsonl`
+  for claude; codex equivalent), triggered by each agent's own `stop` hook (the turn clock —
+  the turn-boundary primitive this spike itself lacked). The on-disk JSONL is structured and
+  lossless; the rendered viewport from `subscribe` is lossier. In short: **subscribe = liveness;
+  off-disk JSONL = capture.** (See `Liveness`, `Turn clock`, and `Capture` in CONTEXT.md.)
 - `--ansi` preserves styling; `--scrollback [N]` includes scrollback in the initial frame.
 - **`watch` is NOT the headless equivalent.** `zellij watch SESSION` is an interactive read-only
   *attach* — verified to **panic headless** (`rc=101: could not enable raw mode: No such device or
