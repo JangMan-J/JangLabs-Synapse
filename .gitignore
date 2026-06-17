@@ -18,3 +18,6 @@ memory/*.md
 
 # OpenSpec tool config — local scaffolding (mostly template comments), not tracked.
 openspec/config.yaml
+
+# Serena assistant/LSP config — machine-local, like .claude/ (Serena regenerates it).
+.serena/
