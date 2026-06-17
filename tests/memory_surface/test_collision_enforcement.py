@@ -286,5 +286,28 @@ class TestWriteContextAdvisory(StoreBase):
         self.assertIsInstance(out, str)  # fail-open: still returns the composite, no raise
 
 
+# --------------------------------------------------------------------------- attribution parity
+class TestAttributionParity(StoreBase):
+    """Pin the single-matcher invariant: per_trigger is sourced from _walk_index's own
+    pre-dedup attribution, not re-derived from the (tag,type)-deduped hits/via."""
+
+    def test_per_trigger_exceeds_deduped_via_for_shared_tagtype(self):
+        proj = ms.project_triggers(self.store, {"commands": ["cargo", "rustc"]})
+        # Both commands route to tag `rust` → same (tag, "command") per mid, so `via` (built
+        # from deduped hits) records only ONE command per mid. per_trigger, recorded pre-dedup,
+        # credits BOTH commands their full breadth.
+        self.assertEqual(proj["per_trigger"]["cargo"], 4)
+        self.assertEqual(proj["per_trigger"]["rustc"], 4)
+        via_cmd = sum(
+            1 for c in proj["collisions"]
+            for v in c["via"] if v["type"] == "command")
+        # via has at most one command tuple per mid (4 mids) — the deduped view.
+        self.assertLessEqual(via_cmd, 4)
+        self.assertGreater(
+            proj["per_trigger"]["cargo"] + proj["per_trigger"]["rustc"], via_cmd,
+            "per_trigger (pre-dedup walk attribution) must exceed the deduped via count — "
+            "proving attribution comes from the matcher walk, not a re-derivation from hits")
+
+
 if __name__ == "__main__":
     unittest.main()

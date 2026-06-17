@@ -2045,7 +2045,7 @@ def _meets_min_candidate(tuples):
     return False
 
 
-def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None):
+def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None, attribute=False):
     """Shared one-pass index-walk: the single matcher used by both search() and project_triggers().
 
     Accepts:
@@ -2069,8 +2069,16 @@ def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None
         aliases = {}
 
     hits = {}
+    # Opt-in per-pattern attribution: matched_value -> set(mids), recorded at EVERY routing
+    # match BEFORE the per-memory (tag,trigger_type) dedup below — so a value that re-fires the
+    # same (tag,type) on a mid is still credited (the dedup is lossy for attribution, which is
+    # exactly why a separate re-walk used to exist and drift). search() leaves attribute=False
+    # and pays nothing; project_triggers reads `attr` instead of re-deriving (D-01/ADR-0015).
+    attr = {} if attribute else None
 
     def _add_hit(mid, tag, trigger_type, matched_value):
+        if attr is not None:
+            attr.setdefault(matched_value, set()).add(mid)
         existing = hits.setdefault(mid, [])
         # Dedup by (tag, trigger_type) per memory
         if not any(t["tag"] == tag and t["trigger_type"] == trigger_type for t in existing):
@@ -2200,7 +2208,7 @@ def _walk_index(tokens, abs_paths, index, tag_to_mids, active=None, aliases=None
                 else:
                     _add_hit(_mid, _mid, "path", path_matched)
 
-    return hits
+    return (hits, attr) if attribute else hits
 
 
 def search(memdir, event, now=None):
@@ -2365,13 +2373,13 @@ def _project_triggers_impl(memdir, triggers, stem=None):
         per_trigger_hits.setdefault(arg, set())
         tokens.append({"value": v, "kind": "argument", "strength": "strong", "_origin": arg})
 
-    # synonyms → kind "tag" (WR-01). _walk_index routes a "tag"-kind token with empty
-    # active/aliases straight through to its bySynonym block (lines ~2031-2039), so the
-    # synonym co-fires land in `hits` exactly like every other trigger field — no separate
-    # post-walk attribution pass is needed (which was the WR-01 bug: synonyms were seeded
-    # into per_trigger_hits but never reached _walk_index, so synonym-only projections
-    # always returned zero collisions). A synonym that doesn't pass TAG_RE still gets a
-    # 0-count per_trigger entry so the breadth report lists every proposed synonym.
+    # synonyms → kind "tag" (WR-01). A "tag"-kind token with empty active/aliases routes
+    # straight through _walk_index's bySynonym block (under its `elif kind == "tag"` branch),
+    # so synonym co-fires land in `hits` like every other field and are credited in `attr` by
+    # the same walk — per-trigger attribution is READ from `attr`, never re-derived (the WR-01
+    # bug was synonyms seeded here but never reaching _walk_index → zero collisions). A synonym
+    # that doesn't pass TAG_RE still gets a 0-count per_trigger entry so the breadth report
+    # lists every proposed synonym.
     for syn in (triggers.get("synonyms") or []):
         v = _norm(syn)
         per_trigger_hits.setdefault(syn, set())
@@ -2388,111 +2396,26 @@ def _project_triggers_impl(memdir, triggers, stem=None):
         abs_paths.append(expanded)
         path_origins[expanded] = p
 
-    # ---- Run the shared index-walk (no _meets_min_candidate gate) ----
-    # Pass empty active/aliases — projection tokens are pre-classified (no recallVocab needed)
-    hits = _walk_index(tokens, abs_paths, index, tag_to_mids)
+    # ---- Run the shared index-walk WITH attribution (the single matcher, D-01/ADR-0015) ----
+    # Pass empty active/aliases — projection tokens are pre-classified (no recallVocab needed).
+    # attribute=True emits, alongside hits, a matched_value -> set(mids) map recorded INSIDE the
+    # same walk, so per_trigger is READ from the matcher's own routing and can never diverge from
+    # it. The prior hand-mirrored re-walk drifted (omitted bySynonym -> false-deny, ADR-0017);
+    # deriving from `attr` makes that whole class of bug impossible.
+    hits, attr = _walk_index(tokens, abs_paths, index, tag_to_mids, attribute=True)
 
-    # ---- Per-trigger attribution for commands and args (single-pass) ----
-    # Re-walk the token list to attribute each fired memory to its origin pattern.
-    # We use the hits dict (already fully populated) and check which mids each token
-    # contributed to by re-looking up the same index entries.
-    by_command = index.get("byCommand", {})
-    by_arg = index.get("byArg", {})
-    by_synonym = index.get("bySynonym", {})
-
+    # ---- Per-trigger attribution: derived from `attr`, no second routing pass ----
+    # cmd/arg/synonym tokens carry normalized value -> raw _origin; path patterns map the
+    # expanded abs path -> raw pattern via path_origins. Each proposed pattern's distinct
+    # co-fire set is exactly the mids its matched_value touched in the walk.
     for tok in tokens:
-        v = tok["value"]
-        kind = tok["kind"]
-        origin = tok["_origin"]
-
-        if kind == "command":
-            for entry in by_command.get(v, []):
-                if entry.get("source") == "tag":
-                    _tag = entry["id"]
-                    for mid in tag_to_mids.get(_tag, []):
-                        if mid in hits:
-                            per_trigger_hits[origin].add(mid)
-                else:
-                    _mid = entry["id"]
-                    if _mid in hits:
-                        per_trigger_hits[origin].add(_mid)
-
-        elif kind == "argument":
-            # Mirror _walk_index's argument routing EXACTLY (it routes args via byArg +
-            # bySynonym; its strong tag-name route is gated `v in active`, and projection
-            # passes empty active so that route NEVER fires). per_trigger attribution MUST
-            # match the matcher's hits or collision_verdict mis-reads author breadth —
-            # omitting bySynonym false-denies a legitimate synonym-narrowed arg, and
-            # crediting tag-name over-attributes a decorative one (ADR-0017 / review
-            # findings #1, #2). byArg (medium) then bySynonym (weak); no tag-name.
-            for entry in by_arg.get(v, []):
-                if entry.get("source") == "tag":
-                    _tag = entry["id"]
-                    for mid in tag_to_mids.get(_tag, []):
-                        if mid in hits:
-                            per_trigger_hits[origin].add(mid)
-                else:
-                    _mid = entry["id"]
-                    if _mid in hits:
-                        per_trigger_hits[origin].add(_mid)
-            for entry in by_synonym.get(v, []):
-                if entry.get("source") == "tag":
-                    _tag = entry["id"]
-                    for mid in tag_to_mids.get(_tag, []):
-                        if mid in hits:
-                            per_trigger_hits[origin].add(mid)
-                else:
-                    _mid = entry["id"]
-                    if _mid in hits:
-                        per_trigger_hits[origin].add(_mid)
-
-        elif kind == "tag":
-            # synonyms (WR-01): projection passes empty active/aliases, so a tag-kind
-            # token routes ONLY through bySynonym in _walk_index — mirror that here so
-            # per_trigger attribution matches the walk's hits exactly.
-            for entry in by_synonym.get(v, []):
-                if entry.get("source") == "tag":
-                    _tag = entry["id"]
-                    for mid in tag_to_mids.get(_tag, []):
-                        if mid in hits:
-                            per_trigger_hits[origin].add(mid)
-                else:
-                    _mid = entry["id"]
-                    if _mid in hits:
-                        per_trigger_hits[origin].add(_mid)
-
-    # ---- Per-trigger attribution for paths ----
-    # Match each abs_path against byPath entries (mirror of _walk_index path routing)
-    by_path = index.get("byPath", {})
-    for stored_key, entries in by_path.items():
-        p = _expand(stored_key)
-        matched_ap = None
-        if p.endswith("/**"):
-            prefix = p[:-3]
-            for ap in abs_paths:
-                if ap == prefix or ap.startswith(prefix + "/"):
-                    matched_ap = ap
-                    break
-        elif "**" in p:
-            continue
-        else:
-            for ap in abs_paths:
-                if fnmatch.fnmatchcase(ap, p):
-                    matched_ap = ap
-                    break
-        if matched_ap is not None:
-            raw_pat = path_origins.get(matched_ap)
-            if raw_pat is not None:
-                for entry in entries:
-                    if entry.get("source") == "tag":
-                        _tag = entry["id"]
-                        for mid in tag_to_mids.get(_tag, []):
-                            if mid in hits:
-                                per_trigger_hits[raw_pat].add(mid)
-                    else:
-                        _mid = entry["id"]
-                        if _mid in hits:
-                            per_trigger_hits[raw_pat].add(_mid)
+        mids = attr.get(tok["value"])
+        if mids:
+            per_trigger_hits[tok["_origin"]].update(mids)
+    for expanded, raw in path_origins.items():
+        mids = attr.get(expanded)
+        if mids:
+            per_trigger_hits[raw].update(mids)
 
     # ---- Self-exclusion (D-05 / PROJ-03) ----
     # The proposed memory is not yet in the catalog so it won't be in hits naturally.
