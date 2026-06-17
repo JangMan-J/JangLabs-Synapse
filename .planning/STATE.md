@@ -154,6 +154,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260615-4i3 | Spike-001 command-surface broadening + both-topology isolation transport map (live-verified) | 2026-06-15 | ed92b83 | [260615-4i3-spike001-command-surface-iso-map](./quick/260615-4i3-spike001-command-surface-iso-map/) |
 | 260616-1pm | Two harness automations: scripts/lint.sh (manual shellcheck runner, not a hook) + hook-reviewer read-only invariant subagent | 2026-06-16 | 1a8168d | [260616-1pm-add-two-harness-automations-scripts-lint](./quick/260616-1pm-add-two-harness-automations-scripts-lint/) |
+| 260616-tjt | Fix zsh completion-menu "same fg and bg" highlight — explicit Ayu-amber `ma=` list-colors in ~/.zshrc (home dotfile; fix applied + tmux-verified, only planning artifacts committed here) | 2026-06-16 | f3f2587 | [260616-tjt-zsh-completion-menu-highlight](./quick/260616-tjt-zsh-completion-menu-highlight/) |
 
 ## Deferred Items
 
