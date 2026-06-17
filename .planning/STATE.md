@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Write-Time Trigger Quality
 status: in_progress
-stopped_at: Phase 8 RE-SPECCED + IMPLEMENTED as openspec change `corpus-aware-enforcement-wiring` (per-component verdict, ADR-0017). ENF-01..05 + QC-03/04 satisfied; full suite green (pytest 416 + shell 20/46/6). NOTE recall p95 gate fails pre-existing (HEAD too) — read path untouched.
+stopped_at: v1.1 ESSENTIALLY COMPLETE. Phase 8 enforcement shipped+archived (openspec `corpus-aware-enforcement-wiring`, ADR-0017). FOLLOW-ON shipped+archived: `unify-matcher-attribution` — per_trigger now derived from the single `_walk_index` walk (deleted the duplicate routing that drifted → the ADR-0017 false-deny; restores ADR-0015 "no second matcher"), + recall perf gate rewritten regression-relative (ADR-0018, gate no longer false-fails on corpus drift). Full suite green (pytest 424 + shell 20/46/6). Open follow-up (UNDIRECTED, not done): reduce the ~56ms read-path p95 (subprocess-startup dominated) — gate now WARNs on it.
 last_updated: "2026-06-14T04:05:00Z"
 last_activity: 2026-06-16 — Quick task 260616-1pm: added scripts/lint.sh (manual shellcheck runner, not a hook) + .claude/agents/hook-reviewer.md (read-only invariant reviewer)
 progress:
