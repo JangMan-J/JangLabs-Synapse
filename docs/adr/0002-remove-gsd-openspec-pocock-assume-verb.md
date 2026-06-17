@@ -34,19 +34,18 @@ Pocock engineering skills already cover planning, spec-truth, and verification.
   gsd-archive-pre-removal:.planning/...` recovers any file). `openspec/specs/` is
   **not** bulk-backfilled — per ADR-0001's rejected-options stance, specs grow as
   capabilities are touched, they do not retrospectively mirror completed work.
-- **Removal is sequenced in three surfaces by blast radius (R1 → R2 → R3):**
+- **Removal is in two surfaces by blast radius (R1 → R2):**
   - **R1 — synapse in-repo footprint (this change).** Distill `.planning/`, tag the
     backup, `git rm` the tree, strip the seven `<!-- GSD:*-start/-end -->` blocks
     from `CLAUDE.md` (the `## GSD Workflow Enforcement` mandate among them), and
     record this ADR. **Executed in this repo.**
-  - **R2 — box-global GSD tooling.** 16 `gsd-*` hook registrations in
-    `~/.claude/settings.json`, 17 `gsd-*` files in `~/.claude/hooks/`, and the
-    `Bash(npx gsd-core *)` permission. **Prepared as a turnkey manifest but GATED on
-    R3** (see Consequences). Done via the settings/`update-config` path, never as a
-    synapse-repo edit.
-  - **R3 — sibling labs still on GSD.** `jangsjyro/.planning` and
-    `switchtail/.planning` are live. Each is removed *inside its own lab*, honoring
-    the JangLabs lab-boundary invariant. Not touched from synapse.
+  - **R2 — box-global GSD tooling (executed).** Removed the `gsd-*` hook
+    registrations from `~/.claude/settings.json`, the `gsd-*` files in
+    `~/.claude/hooks/`, the `Bash(npx gsd-core *)` permission, and the dead GSD
+    statusline segment; the GSD skills + `gsd-core` engine are removed via the
+    official `@opengsd/gsd-core --uninstall`. Done via the settings/`update-config`
+    path, never as a synapse-repo edit. The operator accepted that GSD is being
+    retired box-wide.
 - **The CLAUDE.md re-review is decoupled.** The only `.planning/`→`CLAUDE.md` fold
   point (PROJECT.md core-value/constraints into the head) is deferred to a separate,
   unscoped CLAUDE.md re-review pass. That content is parked in the backup with a
@@ -62,22 +61,17 @@ Pocock engineering skills already cover planning, spec-truth, and verification.
   GSD-shaped dir that still implies the tool. Distill-with-backup chosen instead.
 - **Distill with no backup.** Rejected: distillation is lossy; the tag costs nothing
   and removes the one-way-door risk.
-- **Pull box-global GSD tooling now (R2 immediately).** Rejected: `jangsjyro/` and
-  `switchtail/` still run on `.planning/`; yanking shared hooks would break their
-  next session. R2 is gated on R3.
-
 ## Consequences
 
 - **ADR-0001 is superseded**, not deleted — its noun/why/vocabulary assignments
   survive; only its "GSD owns the verb" clause is reversed here.
-- **Residual global hooks fire against a GSD-free synapse until R2.** Verified
-  harmless for durability: **no `gsd-*` hook writes `CLAUDE.md`**, so the strip is
-  permanent and nothing regenerates the blocks. `gsd-workflow-guard.js` is a soft
-  advisory and default-off. The cost until R2 is cosmetic (a phase-less statusline,
-  an idle context-monitor) — a known state, not a surprise.
-- **R2 is blocked on R3.** The exact R2 removal manifest (16 settings registrations,
-  17 hook files, the `npx gsd-core` permission) is prepared, but must not run until
-  both sibling labs are GSD-free, or their sessions break.
+- **The CLAUDE.md strip is permanent.** Verified before R2: **no `gsd-*` hook writes
+  `CLAUDE.md`**, so nothing regenerates the stripped blocks.
+- **R2 removed box-global tooling that shared matcher-blocks with the synapse memory
+  and base-harness hooks** (`memory-catalog-refresh`, `memory-base-floor`,
+  `bash-idiom-guard`, `handoff-index`). Removal was per-hook-entry, not block-level,
+  so those non-GSD hooks survived. A `~/.claude/settings.json.pre-gsd-r2.bak` backup
+  was taken.
 - **`gsd-archive-pre-removal` is load-bearing** until distillation is confirmed
   complete. Do not delete the tag on the assumption the distillation was lossless.
 - Recovering any raw artifact (e.g. `07-shadow-data.json`, phase `VERIFICATION.md`):

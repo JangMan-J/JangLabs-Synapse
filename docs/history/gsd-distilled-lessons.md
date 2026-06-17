@@ -227,3 +227,21 @@ Verified-live transport reasoning; recorded so an isolation spike inherits a tra
 _Source slug: `reference-zellij-isolation-transport-map` · type: reference_
 
 ---
+
+## [Rewire] Safety-net-then-adversarial-verify before any irreversible data transform
+
+_(Added from the R1 GSD-removal session itself, 2026-06-16 — the meta-lesson of how R1 was done. Kept here as inert reference rather than a live memory, since the memory/tag-routing system is being respec'd.)_
+
+Before any lossy, hard-to-reverse transform of data you must conserve (distill-then-delete, migrate-then-drop, rewrite-then-replace), the winning sequence is **preserve → transform → adversarially verify**, with the verify happening while the original still exists:
+
+1. **Pin a byte-for-byte backup FIRST.** A git tag/commit captures only *committed* state — `git add` any untracked stragglers into the backup commit before tagging, or the tag has a silent hole. Verify backup file-count == working-tree count and spot-check one raw file is recoverable (`git show <tag>:<path>`) before touching anything.
+2. **Transform** (distill / migrate / rewrite).
+3. **Independent adversarial completeness pass** — a separate pass prompted to *find what the transform dropped*, checked against the still-present original, defaulting to "flag it" when unsure. A false flag is cheap; a lost insight is not.
+
+**The critical trap — a FAILED check is not a PASSED check.** A verification step that *errored* (API 529 Overloaded, crash, timeout, partial run) returns **absence of data**, which naively reads as success: `gaps_found: 0`, `failures: []`, empty diff. That is NOT "no gaps" — it's "no answer." Confirm the check ran to *real completion* (no `<failures>`, expected result count present) before trusting a clean verdict; a resumable workflow reuses cached work, so re-running to completion is cheap. Never let a silently-failed check gate the irreversible step.
+
+Proven this session: tag `gsd-archive-pre-removal` pinned the full `.planning/` tree (108 files, after committing one untracked straggler); the distill→loss-audit workflow's audit half first died on 529s and returned `gaps: 0` — a false all-clear — and only the re-run surfaced 24 real dropped items + 2 misroutes.
+
+_Source: this R1 session (no .planning artifact — born here)._
+
+---
