@@ -48,6 +48,23 @@ A Rio-side `opacity-cells = true → false` change was also made
 (`~/.config/rio/config.toml`, backup `config.toml.bak-20260616-220627`) so cell/
 highlight backgrounds render at full color rather than 60% opacity.
 
+## Finding 4 — Rio `colorspace` was a dead key in the wrong TOML section
+
+While chasing residual wash-out, found `colorspace = "display-p3"` placed under
+`[renderer]`. Rio reads `colorspace` only from **`[window]`** (confirmed via
+Context7 `/raphamorim/rio`), so the key was **inert** — Rio had been defaulting to
+sRGB the whole time; P3 was never actually active and never a wash-out cause.
+
+**Fix:** removed the orphaned `[renderer].colorspace` line; added
+`colorspace = "display-p3"` under `[window]` (the section Rio reads). This enables
+P3 wide-gamut for the first time. Requires a **full Rio relaunch** (renderer-init
+setting, not hot-reloaded). Backup `config.toml.bak-20260616-222117`.
+
+Post-relaunch screenshot (in the SwitchTail/Zellij cockpit) shows saturated,
+non-washed colors and a readable text-selection highlight — P3 kept. Whether the
+operator prefers P3 vs sRGB long-term is a taste call; reverting is a one-line
+swap to `"srgb"` (or deleting the key — sRGB is the Linux default).
+
 ## What changed in `~/.zshrc`
 
 Home dotfile, **not** tracked in the synapse repo; backed up to
