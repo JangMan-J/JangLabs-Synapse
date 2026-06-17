@@ -154,7 +154,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260615-4i3 | Spike-001 command-surface broadening + both-topology isolation transport map (live-verified) | 2026-06-15 | ed92b83 | [260615-4i3-spike001-command-surface-iso-map](./quick/260615-4i3-spike001-command-surface-iso-map/) |
 | 260616-1pm | Two harness automations: scripts/lint.sh (manual shellcheck runner, not a hook) + hook-reviewer read-only invariant subagent | 2026-06-16 | 1a8168d | [260616-1pm-add-two-harness-automations-scripts-lint](./quick/260616-1pm-add-two-harness-automations-scripts-lint/) |
-| 260616-tjt | Fix "fg = bg" highlights: zsh completion-menu (teal `ma=` list-colors) + paste-at-prompt (`zle_highlight=(paste:none)`, the real "only on paste" bug) in ~/.zshrc; plus KWin Better-Blur restore (`-git`→stable swap left effect unloaded) + Rio `opacity-cells=false`. All live-verified (tmux render + visual). Home dotfiles; only planning artifacts committed here | 2026-06-16 | _pending_ | [260616-tjt-zsh-completion-menu-highlight](./quick/260616-tjt-zsh-completion-menu-highlight/) |
+| 260616-tjt | Fix "fg = bg" highlights: zsh completion-menu (teal `ma=` list-colors) + paste-at-prompt (`zle_highlight=(paste:none)`, the real "only on paste" bug) in ~/.zshrc; plus KWin Better-Blur restore (`-git`→stable swap left effect unloaded) + Rio `opacity-cells=false`. All live-verified (tmux render + visual). Home dotfiles; only planning artifacts committed here | 2026-06-16 | 5144d51 | [260616-tjt-zsh-completion-menu-highlight](./quick/260616-tjt-zsh-completion-menu-highlight/) |
 
 ## Deferred Items
 
