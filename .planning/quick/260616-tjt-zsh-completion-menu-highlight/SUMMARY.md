@@ -27,12 +27,17 @@ reverse-video, collapsing to near-identical fg/bg.
 in the synapse repo; backed up to `~/.zshrc.bak-20260616-211728`):
 
 ```zsh
-zstyle ':completion:*' list-colors 'ma=48;5;214;38;5;234'
+zstyle ':completion:*' list-colors 'ma=48;2;149;230;203;38;2;11;15;20'
 ```
 
-- `48;5;214` = amber background (Ayu accent)
-- `38;5;234` = near-black foreground
+- `48;2;149;230;203` = teal background, Ayu cyan `#95e6cb` (truecolor)
+- `38;2;11;15;20` = near-black foreground `#0b0f14`
 - Standalone (no `${(s.:.)LS_COLORS}` dependency, since LS_COLORS is empty here).
+
+Color chosen by the operator from a rendered swatch set; teal is a
+reliably-distinct, easy-on-the-eyes hue under daltonized vision and matches the
+Ayu cyan in the theme palette. Earlier amber (`ma=48;5;214;...`) and sky-blue
+(`ma=48;2;115;208;255;...`) drafts were superseded by this pick.
 
 ## Why this form
 
