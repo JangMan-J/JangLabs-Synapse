@@ -1560,6 +1560,30 @@ def check_write(memdir, content, target=None):
                         f"memory appears to duplicate {existing_id!r}; "
                         f"consolidate into {existing_path} instead of creating a new file."
                     )
+        # ENF-01/ENF-03 (ADR-0017): corpus-aware collision enforcement. Deny the
+        # BLOCK-degenerate verdict — breadth above the floor carried entirely by the
+        # command axis with the author's narrowing dead. Wrapped in try/except so ANY
+        # fault (defense-in-depth beyond project_triggers' own internal fail-open)
+        # degrades to static-gate-only — only the static GATE above can have denied.
+        # Self-exclude the proposed memory by its stem.
+        proj, degenerate = {}, False
+        try:
+            stem = os.path.splitext(os.path.basename(str(target)))[0] if target else None
+            floor = load_config(memdir).get(
+                "collisionGuideFloor", DEFAULT_CONFIG["collisionGuideFloor"])
+            proj = project_triggers(memdir, triggers, stem=stem)
+            degenerate = collision_verdict(proj, triggers, floor) == "block-degenerate"
+        except Exception:
+            degenerate = False                         # fail open to the static gate
+        if degenerate:
+            return 2, (
+                f"these triggers over-fire: their breadth ({proj.get('distinct_count')} "
+                f"co-firing memories) is carried entirely by a non-discriminating command "
+                f"with no narrowing arg/path/synonym — they would route on the bare command. "
+                f"Co-firing memories: {_collision_ids(proj)}. Add a distinguishing routable "
+                f"arg or a specific path so the trigger discriminates.\n"
+                + TRIGGER_SCHEMA_HINT
+            )
     elif store_class in ("project-store", "repo-memory"):
         # --- Non-box branch (D-15 placement gate) ---
         # Skip legacy tag validation and triggers requirement — no grammar authority
@@ -1601,6 +1625,11 @@ DEFAULT_CONFIG = {
     "maxDescriptionChars": 220, "maxBlockChars": 4000, "dedupeTtlSeconds": 900,
     "obligationTtlSeconds": 1800, "confidenceHighThreshold": 10,
     "confidenceMediumThreshold": 6, "requireAllRequiredReads": False, "debug": False,
+    # ENF-04 (ADR-0017): the single collision-breadth floor. Co-fire above this is
+    # "broad"; the axis carrying it (command vs author-controlled) decides block vs
+    # guide. There is no separate per-corpus block cutoff. Advisory-grounded: it can
+    # never false-deny on its own (the block also requires dead author levers).
+    "collisionGuideFloor": 8,
 }
 
 
@@ -2389,13 +2418,24 @@ def _project_triggers_impl(memdir, triggers, stem=None):
                         per_trigger_hits[origin].add(_mid)
 
         elif kind == "argument":
-            # tag-name match
-            if v in tag_to_mids:
-                for mid in tag_to_mids.get(v, []):
-                    if mid in hits:
-                        per_trigger_hits[origin].add(mid)
-            # byArg match
+            # Mirror _walk_index's argument routing EXACTLY (it routes args via byArg +
+            # bySynonym; its strong tag-name route is gated `v in active`, and projection
+            # passes empty active so that route NEVER fires). per_trigger attribution MUST
+            # match the matcher's hits or collision_verdict mis-reads author breadth —
+            # omitting bySynonym false-denies a legitimate synonym-narrowed arg, and
+            # crediting tag-name over-attributes a decorative one (ADR-0017 / review
+            # findings #1, #2). byArg (medium) then bySynonym (weak); no tag-name.
             for entry in by_arg.get(v, []):
+                if entry.get("source") == "tag":
+                    _tag = entry["id"]
+                    for mid in tag_to_mids.get(_tag, []):
+                        if mid in hits:
+                            per_trigger_hits[origin].add(mid)
+                else:
+                    _mid = entry["id"]
+                    if _mid in hits:
+                        per_trigger_hits[origin].add(_mid)
+            for entry in by_synonym.get(v, []):
                 if entry.get("source") == "tag":
                     _tag = entry["id"]
                     for mid in tag_to_mids.get(_tag, []):
@@ -2482,6 +2522,45 @@ def _project_triggers_impl(memdir, triggers, stem=None):
         "distinct_count": len(collisions),
         "per_trigger": {p: len(mids) for p, mids in per_trigger_hits.items()},
     }
+
+
+# ---------------------------------------------------------------- collision verdict (ENF, ADR-0017)
+def collision_verdict(projection, triggers, floor):
+    """Classify a project_triggers() result into a write-time enforcement verdict.
+
+    Returns one of:
+      "pass"             — no actionable breadth (empty, or distinct_count <= floor)
+      "guide-broad"      — breadth above the floor with an author-controlled axis
+                           (arg / path / synonym) contributing — advisory, never blocked
+      "block-degenerate" — breadth above the floor carried ENTIRELY by the command axis
+                           with every author lever contributing zero distinct narrowing
+
+    Per ADR-0017 the verdict is read from the per-component contribution, never from a
+    scalar sum across axes. When every author lever contributes 0, `distinct_count` IS
+    the command-axis breadth (commands are then the only contributors), so this reads
+    directly from the shipped projection output — no per-axis distinct-set recomputation.
+
+    Pure function; the empty projection that project_triggers() returns on any fault
+    yields "pass", so the caller fails open to the static gate for free.
+    """
+    proj = projection or {}
+    dc = proj.get("distinct_count", 0) or 0
+    if dc <= floor:
+        return "pass"
+    per = proj.get("per_trigger") or {}
+    triggers = triggers or {}
+    author_patterns = ((triggers.get("args") or [])
+                       + (triggers.get("paths") or [])
+                       + (triggers.get("synonyms") or []))
+    author_breadth = sum((per.get(p, 0) or 0) for p in author_patterns)
+    if author_breadth == 0:
+        return "block-degenerate"        # all breadth on the command axis, levers dead
+    return "guide-broad"                 # an author-controlled axis carries breadth
+
+
+def _collision_ids(projection):
+    """Sorted, comma-joined colliding memory ids from a projection (for deny/guide text)."""
+    return ", ".join(sorted(c.get("id", "") for c in (projection or {}).get("collisions", [])))
 
 
 # ---------------------------------------------------------------- taxonomy mutators
@@ -2722,6 +2801,42 @@ def _write_context_impl(memdir, event, target=None):
                 cand_lines.append(f"- {mem_id} — {mem_desc} ({mem_path})")
             parts.append("\n".join(cand_lines))
 
+        # --- (c2) Collision guidance (ENF-02, ADR-0017): only at/above the floor ---
+        # Routing-overlap signal (distinct from the content-similarity dedup nudge above).
+        # Silent below the floor — the dedup nudge already covers small-overlap consolidation.
+        proposed_triggers = None
+        if content:
+            try:
+                _, _cm, _ = parse_frontmatter(content)
+                proposed_triggers = _cm.get("triggers")
+            except Exception:
+                proposed_triggers = None
+        if proposed_triggers:
+            try:
+                floor = load_config(memdir).get(
+                    "collisionGuideFloor", DEFAULT_CONFIG["collisionGuideFloor"])
+                proj = project_triggers(memdir, proposed_triggers,
+                                        stem=os.path.splitext(basename)[0])
+                v = collision_verdict(proj, proposed_triggers, floor)
+                if v == "block-degenerate":
+                    parts.append(
+                        "--- Collision Warning ---\n"
+                        f"WILL BE DENIED: these triggers co-fire with "
+                        f"{proj.get('distinct_count')} memories entirely via a "
+                        f"non-discriminating command (no narrowing arg/path). Add a routable "
+                        f"arg or a specific path. Co-fires: {_collision_ids(proj)}"
+                    )
+                elif v == "guide-broad":
+                    parts.append(
+                        "--- Collision Guidance ---\n"
+                        f"These triggers are broad: they co-fire with "
+                        f"{proj.get('distinct_count')} memories ({_collision_ids(proj)}). "
+                        f"Consider a more specific component (a narrower path or a "
+                        f"distinguishing arg) so recall discriminates."
+                    )
+            except Exception:
+                pass
+
     # --- (d) Placement guidance ---
     correct_store = str(resolve_memdir())
     placement_text = (
@@ -2772,6 +2887,12 @@ def _write_context_impl(memdir, event, target=None):
     cand_section = next((p for p in parts if p.startswith("--- Dedup Candidates ---")), None)
     if cand_section:
         parts_trimmed.append(cand_section)
+
+    # Re-add collision guidance (c2) if present — advisory, but the block-degenerate
+    # pre-warning is worth keeping over the dedup list when budget is tight.
+    coll_section = next((p for p in parts if p.startswith("--- Collision")), None)
+    if coll_section:
+        parts_trimmed.append(coll_section)
 
     # Always add placement guidance (d)
     parts_trimmed.append(placement_text)

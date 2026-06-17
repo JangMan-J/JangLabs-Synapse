@@ -26,7 +26,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 - [x] **Phase 5: Collision Projection Engine** - `project_triggers` primitive reuses the existing matcher to project a proposed trigger set against the live corpus — completed 2026-06-13 (verified 5/5)
 - [x] **Phase 6: Hardened Static Gate** - block real-but-broad low-signal commands at write time with no corpus lookup — completed 2026-06-13
 - [x] **Phase 7: Shadow Calibration** - real-demonstration gate. **Outcome: the live corpus rejects the scalar threshold** (no safe N exists); the per-component contribution table is adopted as the enforcement signal. Completed 2026-06-14 (verified 4/4) — see `07-CALIBRATION.md`.
-- [ ] **Phase 8: Corpus-Aware Enforcement Wiring** - ⚠️ **PENDING REPLAN.** Original scalar-threshold design superseded by Phase 7's per-component finding. To be re-specced: per-component verdict (BLOCK pure-command-breadth-with-dead-levers / GUIDE broad-author-axis / PASS), ENF-04 re-scope to advisory guide-breadth floor.
+- [x] **Phase 8: Corpus-Aware Enforcement Wiring** - ✅ **RE-SPECCED + IMPLEMENTED** as OpenSpec change `corpus-aware-enforcement-wiring` (GSD retired; ADR-0002 verb = openspec lifecycle). Per-component verdict (BLOCK pure-command-breadth-with-dead-levers / GUIDE broad-author-axis / PASS), single config floor `collisionGuideFloor`. Rationale: ADR-0017. ENF-01..05 + QC-03/04 satisfied; full suite green. (ENF-05 read path byte-unchanged; ≤55ms recall gate fails pre-existing, separate concern.)
 
 ## Phase Details
 

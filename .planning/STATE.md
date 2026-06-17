@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Write-Time Trigger Quality
 status: in_progress
-stopped_at: Phase 7 complete (scalar rejected; per-component adopted) — Phase 8 pending replan
+stopped_at: Phase 8 RE-SPECCED + IMPLEMENTED as openspec change `corpus-aware-enforcement-wiring` (per-component verdict, ADR-0017). ENF-01..05 + QC-03/04 satisfied; full suite green (pytest 416 + shell 20/46/6). NOTE recall p95 gate fails pre-existing (HEAD too) — read path untouched.
 last_updated: "2026-06-14T04:05:00Z"
 last_activity: 2026-06-16 — Quick task 260616-1pm: added scripts/lint.sh (manual shellcheck runner, not a hook) + .claude/agents/hook-reviewer.md (read-only invariant reviewer)
 progress:
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 
 ## Current Position
 
-Phase: 7 — Shadow Calibration — COMPLETE
-Status: Phase 7 closed as a real-demonstration finding — the live corpus REJECTS the scalar block threshold; the per-component contribution table (`per_trigger`) is adopted as the enforcement signal. CAL-01/02/03 satisfied, verified 4/4. Phase 8 (enforcement wiring) must be re-specced before planning — its scalar-threshold premise is superseded.
+Phase: 8 — Corpus-Aware Enforcement Wiring — RE-SPECCED + IMPLEMENTED
+Status: The Phase 8 replan was done as the OpenSpec change `corpus-aware-enforcement-wiring` (GSD retired per ADR-0002; the verb is now the openspec lifecycle). Rationale → ADR-0017; rule → `openspec/changes/corpus-aware-enforcement-wiring/specs/write-guard/spec.md` (folds to `openspec/specs/write-guard/` on archive). Per-component verdict (BLOCK degenerate / GUIDE broad / PASS), single config floor `collisionGuideFloor` (default 8). Implemented in `lib/memory_surface.py` (`collision_verdict` + `check_write` block tier + `write_context` advisory), fail-open to the static gate. Tests: `test_collision_enforcement.py` (14) + `test_collision_hooks.sh` (6); full suite green. ENF-05: read path byte-unchanged (diff-proven); the ≤55ms recall gate fails PRE-EXISTING (fails at HEAD too, 52/56ms) — corpus-growth drift, a separate concern, not this change's regression.
 Last activity: 2026-06-14 — Phase 7: live shadow over 10 trigger-bearing memories → distinct_count `[0×9, 48]`; lone outlier floods 48 on a single broad path axis; no safe scalar N exists; per-component rule false-denies zero legitimate memories. Artifacts: 07-CALIBRATION.md / 07-VERIFICATION.md / 07-shadow-data.json.
 
 ## Performance Metrics

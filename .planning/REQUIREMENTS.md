@@ -139,18 +139,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GATE-01 | Phase 6 | Pending |
 | GATE-02 | Phase 6 | Pending |
 | GATE-03 | Phase 6 | Pending |
-| ENF-01 | Phase 8 | Pending |
-| ENF-02 | Phase 8 | Pending |
-| ENF-03 | Phase 8 | Pending |
-| ENF-04 | Phase 8 | Pending |
-| ENF-05 | Phase 8 | Pending |
+| ENF-01 | Phase 8 | Satisfied (re-specced: BLOCK-degenerate per-component, openspec change `corpus-aware-enforcement-wiring`) |
+| ENF-02 | Phase 8 | Satisfied (GUIDE-broad advisory at/above floor) |
+| ENF-03 | Phase 8 | Satisfied (fail-open to static gate on projection error) |
+| ENF-04 | Phase 8 | Satisfied (re-scoped to single `collisionGuideFloor`, ADR-0017) |
+| ENF-05 | Phase 8 | Read path byte-unchanged (diff-proven); ≤55ms gate fails PRE-EXISTING (HEAD too) — separate concern |
 | CAL-01 | Phase 7 | Satisfied (live shadow: `[0×9, 48]`) |
 | CAL-02 | Phase 7 | Satisfied (scalar rejected; per-component adopted — `07-CALIBRATION.md`) |
 | CAL-03 | Phase 7 | Satisfied (zero legitimate false-denials; scalar bind recorded) |
 | QC-01 | Phase 5 | Pending |
 | QC-02 | Phase 6 | Pending |
-| QC-03 | Phase 8 | Pending |
-| QC-04 | Phase 8 | Pending |
+| QC-03 | Phase 8 | Satisfied (hook end-to-end fixtures: `test_collision_hooks.sh`) |
+| QC-04 | Phase 8 | Satisfied (fail-open + quiet-on-success proven; no permissions/corpus writes by construction) |
 
 **Coverage:**
 - v1.1 requirements: 19 total
