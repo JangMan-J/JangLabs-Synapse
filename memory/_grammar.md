@@ -155,6 +155,15 @@ related: []
 
 ## tool
 
+### zellij
+gloss: Zellij multiplexer + WASM plugin stack (zellij-tile, pipes, permission cache, headless E2E driving)
+placement: box
+commands: [zellij]
+paths: [~/.cache/zellij/**, ~/.local/share/zellij/plugins/**, ~/.config/zellij/**]
+args: [start-or-reload-plugin, launch-plugin, dump-screen, wasm32-wasip1, zellij-tile]
+synonyms: [zellij-tile, switchtail]
+related: [terminal]
+
 ### systemd
 gloss: systemd units, --user services, systemd-run, journalctl
 placement: box
