@@ -39,6 +39,10 @@ metadata:
   node_type: memory
   type: feedback
   tags: [nvidia, kde]
+  triggers:
+    commands: [nvidia-smi]
+    paths: [~/.config/nvidia/**]
+    args: [query-gpu]
 ---
 b'
 BAD='---
@@ -56,7 +60,10 @@ rc_is() { if [ "$2" = "$3" ]; then echo "  ✓ $1"; pass=$((pass+1)); else echo 
 
 echo "── context ──"
 out=$(mkwrite "$FIX/n.md" "$GOOD" | "$CTX"); rc_is "memory write -> 0" 0 $?
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext|test("nvidia")' >/dev/null && { echo "  ✓ injects vocab"; pass=$((pass+1)); } || { echo "  ✗ no vocab"; fail=$((fail+1)); }
+# The write-context composite injects the REQUIRED triggers schema + placement guidance
+# (CORE-02 / D-08/D-09) — it no longer echoes the tag vocabulary. Assert the composite
+# was injected by matching the stable 'triggers' marker it always carries.
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext|test("triggers")' >/dev/null && { echo "  ✓ injects composite"; pass=$((pass+1)); } || { echo "  ✗ no composite"; fail=$((fail+1)); }
 out=$(mkwrite "/tmp/x.md" "x" | "$CTX"); rc_is "off-store silent" 0 $?; [ -z "$out" ] && pass=$((pass+1)) || { echo "  ✗ leaked"; fail=$((fail+1)); }
 
 echo "── guard: core contract ──"
