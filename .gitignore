@@ -15,3 +15,6 @@ __pycache__/
 # (_tags.md, _tag_links.md = underscore-prefixed infra; _review_game.py is .py, untouched.)
 memory/*.md
 !memory/_*.md
+
+# OpenSpec tool config — local scaffolding (mostly template comments), not tracked.
+openspec/config.yaml
