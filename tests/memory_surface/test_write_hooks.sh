@@ -245,9 +245,24 @@ out=$(mkwrite "$OTHER_REPO_MEM" "$AMBIGUOUS_CONTENT" | "$GUARD" 2>&1); got_rc=$?
 rc_is "GUARD ambiguous tags -> rc=0 (D-15)" 0 "$got_rc"
 
 echo "── GUARD: infra exemptions (D-14) ──"
-# D-14: writes targeting _grammar.md / _tags.md / MEMORY.md are never gated as memories
-out=$(mkwrite "$FIX/_grammar.md" "# grammar update" | "$GUARD" 2>&1); got_rc=$?
-rc_is "GUARD _grammar.md exempt -> rc=0 (D-14)" 0 "$got_rc"
+# D-14: writes targeting _grammar.md / _tags.md / MEMORY.md are never gated as MEMORIES.
+# (WR-04 still validates the PROPOSED taxonomy/grammar content — so the grammar write here
+# must carry VALID grammar, not a stub; a malformed grammar Write is correctly denied. This
+# case asserts: valid grammar content is exempt from memory gating and allowed -> rc=0.)
+VALID_GRAMMAR='# grammar
+
+## domain
+
+### nvidia
+gloss: GPU vendor
+placement: box
+commands: [nvidia-smi]
+paths: [~/.config/nvidia/**]
+args: [query-gpu]
+synonyms: []
+related: []'
+out=$(mkwrite "$FIX/_grammar.md" "$VALID_GRAMMAR" | "$GUARD" 2>&1); got_rc=$?
+rc_is "GUARD _grammar.md (valid content) exempt -> rc=0 (D-14/WR-04)" 0 "$got_rc"
 out=$(mkwrite "$FIX/_tags.md" "# tags update" | "$GUARD" 2>&1); got_rc=$?
 rc_is "GUARD _tags.md exempt -> rc=0 (D-14)" 0 "$got_rc"
 out=$(mkwrite "$FIX/MEMORY.md" "# Memory index" | "$GUARD" 2>&1); got_rc=$?
