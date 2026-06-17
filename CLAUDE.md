@@ -59,7 +59,7 @@ system stays legible and maximum-punch-per-pound while doing it.
   actionable failure. No walls of status lines feeding Claude's context.
 
 - **Recall posture**: Advisory only, never denies, fails open.
-- **Data**: The ~124 memory files' content must survive; metadata is expendable.
+- **Data**: The ~160 memory files' content must survive; metadata is expendable.
 - **Install**: `agent-harness.py` remains the single idempotent entry point (dry-run
   default, symmetric remove, per-run timestamped backups).
 
