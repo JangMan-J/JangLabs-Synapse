@@ -21,6 +21,27 @@ and commit messages use one vocabulary. This is a glossary, not a spec.
 - **Fire** — one instance of the reflection trigger actually recording a memory.
   The corpus tool's primary measurement is the **firing rate**: P(fire | N).
 
+## Write-time trigger quality
+
+- **Co-fire** (collision) — two memories whose triggers both match the same
+  tool call. The proposed memory and an existing one would surface together.
+- **Collision projection** — checking, at write time, which existing memories a
+  proposed trigger set would co-fire with, by running it through the same routing
+  the read path uses. The telemetry-free quality signal for a new trigger set.
+- **Per-component contribution** — the co-fire count attributed to each
+  individual trigger pattern, and so to each **axis** (command / arg / path /
+  synonym). Kept distinct, never summed: a memory's breadth is read by *which
+  axis carries it*, not by one total.
+- **Verdict** — the write-time judgment on a proposed trigger set, one of:
+  **Pass** (no actionable breadth), **Guide-broad** (broad on an
+  author-controlled axis — advisory, never blocked), **Block-degenerate** (broad
+  on the command axis with the author's narrowing dead — denied).
+- **Decorative narrowing** — an arg or path the author added that contributes no
+  distinct narrowing against the live corpus: the set routes as if it weren't
+  there. The defect the Block-degenerate verdict names.
+- **Guide-breadth floor** — the co-fire count above which breadth is treated as
+  "broad." The single tunable number; below it, breadth is not actionable.
+
 ## Corpus generation (the agent help-session harness)
 
 The tool being designed (corpusforge, successor apparatus) to generate memory
