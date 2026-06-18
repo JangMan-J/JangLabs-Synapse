@@ -27,19 +27,35 @@ memories only; `Edit`/`MultiEdit` and frontmatter-less content fail open.
 
 ### Requirement: Static degenerate-blocker gate
 
-The write-guard SHALL deny a trigger set whose only behavioral evidence is a low-signal
-command (the named `LOW_SIGNAL_COMMANDS` set, normalized `strip().lower()` to mirror the read
-path) with no narrowing **routable** arg and no specific (non-broad) path. An arg narrows only
-if it is in the live `byArg` routable vocabulary; a novel/decorative arg does not rescue the
-set. Any narrowing routable arg or specific path passes. This tier is static and corpus-free
-except for the routable-arg vocabulary; it is the one place fail-open does not apply.
+The write-guard's static gate (`_check_triggers`) SHALL deny a trigger set that carries no
+narrowing author lever, across three arms:
+
+1. **Generic/low-signal commands only.** The commands are all in `GENERIC_VERBS ∪
+   LOW_SIGNAL_COMMANDS` (normalized `strip().lower()` to mirror the read path — so a MIX of
+   generic verbs and low-signal commands is also denied), with no narrowing lever.
+2. **Broad-glob-only paths.** The only behavioral evidence is overly-broad glob(s) (`~/**`,
+   `$HOME/**`, `/home/**`, and any recursive glob whose non-wildcard root sits at or above
+   `$HOME`) — no command, no narrowing lever.
+
+A **narrowing author lever** is (ADR-0019, unified with the collision tier's live-lever
+model): a **routable arg** (in the live `byArg` vocabulary OR `bySynonym` — the matcher
+routes an arg through both), a **routable synonym** (in `bySynonym`), or a **specific
+(non-broad) path**. Any one of these passes the gate. A novel/decorative arg or synonym
+(routable in neither vocabulary) does not rescue the set. This tier is static and
+corpus-free except for the routable arg/synonym vocabularies; it is the one place fail-open
+does not apply — except that a missing catalog (no `byArg`/`bySynonym` available) fails the
+gate OPEN so it never hard-denies on missing infra.
 
 #### Scenario: Bare low-signal command is denied
-- **WHEN** a memory's triggers are a low-signal command (e.g. `git`) with no routable arg and no specific path
+- **WHEN** a memory's triggers are a low-signal command (e.g. `git`) with no routable arg, routable synonym, or specific path
 - **THEN** the guard denies with exit 2, naming the offending command and the actionable fix
 
-#### Scenario: Low-signal command with a routable arg passes
-- **WHEN** a memory pairs a low-signal command with an arg present in the live `byArg` vocabulary
+#### Scenario: Generic-verbs-only or broad-glob-only set is denied
+- **WHEN** the only evidence is generic verbs (e.g. `restart`, `status`) with no narrowing lever, or only broad globs (`~/**`)
+- **THEN** the guard denies with exit 2
+
+#### Scenario: Low-signal command with a routable arg or synonym passes
+- **WHEN** a memory pairs a low-signal command with an arg in `byArg`/`bySynonym`, or a routable synonym, or a specific path
 - **THEN** the static gate passes (exit 0)
 
 ### Requirement: New-file dedup backstop
@@ -54,24 +70,40 @@ existing file's path. Writing into an existing file (consolidation) is always al
 
 ### Requirement: Corpus-aware collision enforcement — blocking tier
 
-The blocking write path (`check-write`) SHALL deny a full `Write` whose collision-projection
-verdict is **BLOCK-degenerate**: the command-axis distinct co-fire breadth is strictly greater
-than `collisionGuideFloor` AND every author-controlled lever pattern (each arg, path, and
-synonym) contributes **zero** distinct co-fire. The deny reason MUST name the colliding memory
-ids. The verdict MUST be read from the per-component contribution (`per_trigger`) returned by
-`project_triggers`, never from a scalar sum of `distinct_count` across axes (ADR-0017).
+The blocking write path (`check-write`) SHALL deny a NEW-file full `Write` whose
+collision-projection verdict is **BLOCK-degenerate**: the distinct co-fire breadth is
+strictly greater than `collisionGuideFloor` AND the author supplied **no structurally-
+narrowing lever** (no routable arg, no specific path, no routable synonym). The deny reason
+MUST name the colliding memory ids.
 
-#### Scenario: Degenerate set (command breadth, dead levers) is denied
-- **WHEN** a proposed set's co-fire breadth exceeds the floor and is carried entirely by the command axis with every arg/path/synonym contributing zero
+The verdict MUST be read from the projection's **`live_levers`** — the author levers that
+would ROUTE the proposed memory at recall time — never from `per_trigger` co-fire counts
+(ADR-0019, correcting ADR-0017). Liveness is **routability, not co-fire**: a routable lever
+that co-fires with zero other memories is the *best* possible narrowing, so it makes the
+set GUIDE-broad (advisory), not BLOCK-degenerate. The pre-ADR-0019 `sum(per_trigger)==0`
+test inverted this and false-denied perfectly-unique levers on the live corpus — the #1-rule
+violation this requirement now forbids.
+
+**Consolidation/update is always allowed.** The collision tier fires ONLY for NEW files
+(`target` is None or does not yet exist), exactly like the dedup backstop. A full `Write`
+that updates an already-existing memory is never blocked by this tier — the file is already
+in the store and part of the very cluster being counted.
+
+#### Scenario: Degenerate new-file set (command breadth, no live lever) is denied
+- **WHEN** a NEW-file set's co-fire breadth exceeds the floor and the author supplied no routable arg, specific path, or routable synonym
 - **THEN** `check-write` denies with exit 2, citing the colliding memory ids
 
-#### Scenario: A set whose arg actually narrows is not blocked
-- **WHEN** a proposed set's breadth exceeds the floor but at least one author lever contributes distinct co-fire
+#### Scenario: A routable-but-unique lever is not blocked
+- **WHEN** a proposed set's breadth exceeds the floor but the author supplied at least one routable arg / specific path / routable synonym — even one that co-fires with zero other memories
 - **THEN** `check-write` does not block on the collision tier (the GUIDE-broad advisory applies instead)
 
 #### Scenario: Broad author-controlled axis is never blocked
 - **WHEN** a proposed set's breadth is carried by a broad author-controlled path or arg (e.g. a `~/.claude/...` path)
 - **THEN** `check-write` does not deny — this is GUIDE-broad, surfaced as advisory guidance only
+
+#### Scenario: Updating an existing memory is exempt from the collision tier
+- **WHEN** a full `Write` targets a memory file that already exists in the store, even with a degenerate trigger set
+- **THEN** the collision tier does not block (consolidation/update is always allowed)
 
 #### Scenario: Below-floor co-fire passes
 - **WHEN** a proposed set co-fires with no more than `collisionGuideFloor` other memories
@@ -114,14 +146,26 @@ advisory tiers. There SHALL be no separate, per-corpus-calibrated block threshol
 - **WHEN** `_memory_surface_config.json` sets `collisionGuideFloor` to a new value
 - **THEN** both the block and guide tiers use that value with no code change
 
-### Requirement: Read path is structurally unchanged
+### Requirement: Read-path behavior is preserved and within the regression gate
 
-After the write-path changes ship, recall p95 SHALL remain within the existing ≤55ms budget,
-and the read path (recall hook + `search`) SHALL be structurally unmodified.
+The write-path changes SHALL NOT alter recall *behavior*: `search()` SHALL return the
+same results it did before. The shared matcher `_walk_index` MAY be edited to serve the
+write path (e.g. the ADR-0019 `attribute`/`live_levers` plumbing and the opt-in
+attribution added in matcher unification), provided `search()` calls it on the default
+path (`attribute=False`) and pays nothing. Recall p95 SHALL stay within the
+**regression-relative** gate of ADR-0018 — measured against the committed
+`recall_p95_baseline` with an advisory budget — NOT an absolute fixed-ms cliff (the
+former hard ≤55ms cliff was retired by ADR-0018 because it drifted permanently red on
+corpus growth; subprocess startup dominates the read path).
 
-#### Scenario: Recall p95 re-demonstrated within budget
-- **WHEN** the read-path benchmark is run after the change
-- **THEN** p95 is ≤ 55ms and no read-path code changed
+#### Scenario: Recall behavior is unchanged
+- **WHEN** the same recall event is run before and after the write-path changes
+- **THEN** `search()` returns identical results (the matcher's default path is untouched)
+
+#### Scenario: Recall p95 stays within the regression-relative gate
+- **WHEN** the read-path benchmark (`bench_recall.sh`) is run after the change
+- **THEN** p95 is within ADR-0018's regression gate of the committed baseline (the gate
+  WARNs, never fails, when within the advisory budget)
 
 ### Requirement: Enforcement honors the subsystem iron laws
 

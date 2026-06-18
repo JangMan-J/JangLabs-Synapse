@@ -1296,7 +1296,7 @@ def _routable_args(memdir):
         return None
 
 
-def _check_triggers(triggers, routable_args=None):
+def _check_triggers(triggers, routable_args=None, routable_syns=None):
     """Validate a triggers dict for shape and specificity (D-09, D-10).
 
     Returns (rc, reason):
@@ -1320,6 +1320,14 @@ def _check_triggers(triggers, routable_args=None):
     reality). When `routable_args is None` (no catalog available / direct call), the gate
     FAILS OPEN — any non-empty arg is treated as rescuing — so it never hard-denies on
     missing infra. The caller (`check_write`) supplies the live `byArg` keys.
+
+    `routable_syns` (ADR-0019): the set of synonyms routable at recall time (catalog
+    `bySynonym` keys). A routable synonym genuinely narrows a low-signal command via the
+    bySynonym route, so it MUST rescue the static gate exactly as a routable arg or a
+    specific path does — otherwise the static gate (which runs first) hard-denies a set
+    the collision tier would classify guide-broad: a tier-shadowing false-deny. `None`
+    fails open on that axis (any synonym rescues). Pre-ADR-0019 the gate ignored synonyms
+    entirely; this unifies it with the collision tier's live-lever model.
     """
     if not isinstance(triggers, dict):
         return 2, (
@@ -1396,13 +1404,40 @@ def _check_triggers(triggers, routable_args=None):
     # routable_args=None => no catalog => FAIL OPEN (any non-empty arg counts as narrowing),
     # so the gate never hard-denies on missing infra. Args are matched case-insensitively
     # to mirror the read path's token normalization.
+    # ADR-0019: an arg routes through byArg OR bySynonym (mirror _walk_index's dual arg
+    # route), so an arg whose value is a routable synonym (e.g. `wiz`) narrows too. The
+    # CATALOG-PRESENCE signal is routable_args: None => no catalog => fail OPEN (any arg
+    # narrows, as before). When routable_args IS a set, the catalog is present, so a None
+    # routable_syns is treated as an EMPTY synonym vocab (not fail-open) — never widening
+    # the rescue beyond what the live catalog supports. Kept consistent with the collision
+    # tier's _live_levers so the two tiers never disagree on whether an arg narrows.
     if routable_args is None:
         narrowing_args = args                                  # fail open: any arg narrows
     else:
-        _rset = {a.strip().lower() for a in routable_args}
-        narrowing_args = [a for a in args if a.strip().lower() in _rset]
+        # _norm mirrors the matcher: lowercases AND drops un-routable forms (--bare, -p,
+        # Terminal=true → None), then tests EXACT membership against the raw catalog keys
+        # (by_arg.get(_norm(arg))). routable_syns are raw bySynonym keys (None → empty).
+        _rset = set(routable_args)
+        _ssan = set(routable_syns or ())
+        narrowing_args = [a for a in args
+                          if _norm(a) is not None and (_norm(a) in _rset or _norm(a) in _ssan)]
 
-    if cmds and not narrowing_args and not non_broad_paths:
+    # ADR-0019: a ROUTABLE synonym narrows a low-signal command via the bySynonym route,
+    # so it rescues the static gate exactly like a routable arg / specific path. The
+    # collision tier already credits synonyms (live-lever model); ignoring them here let
+    # the earlier-running static gate false-deny a guide-broad set. Fail-open keys on the
+    # CATALOG-PRESENCE signal (routable_args is None => no catalog => any synonym rescues),
+    # so a present catalog with a None routable_syns uses an EMPTY synonym vocab rather
+    # than widening the rescue. Matched case-insensitively like args.
+    syns = [s for s in triggers.get("synonyms", []) if s]
+    if routable_args is None:
+        narrowing_syns = syns                                  # fail open: any synonym narrows
+    else:
+        _sset = set(routable_syns or ())                       # raw bySynonym keys
+        narrowing_syns = [s for s in syns
+                          if _norm(s) is not None and _norm(s) in _sset]
+
+    if cmds and not narrowing_args and not non_broad_paths and not narrowing_syns:
         # Normalize each command exactly as the read path does (_norm: strip+lower,
         # line ~1587) before the membership test. Otherwise `Git` / ` git ` would pass
         # the gate yet be lowercased/stripped to `git` at match time — over-firing the
@@ -1421,18 +1456,18 @@ def _check_triggers(triggers, routable_args=None):
                          f"command. Add the arg to the grammar 'args:' to make it routable, "
                          f"or use a specific path.")
             else:
-                extra = (" Add a distinguishing arg (a grammar-routable subcommand) or a "
-                         "specific path to narrow the trigger.")
+                extra = (" Add a distinguishing arg (a grammar-routable subcommand), a "
+                         "routable synonym, or a specific path to narrow the trigger.")
             return 2, (
                 f"triggers.commands contains only generic or low-signal commands "
-                f"({', '.join(sorted(cmds))}) with no narrowing routable args or "
-                f"domain-specific paths. Generic and broadly-used commands provide no routing "
-                f"signal on their own —{extra}\n"
+                f"({', '.join(sorted(cmds))}) with no narrowing routable args, routable "
+                f"synonyms, or domain-specific paths. Generic and broadly-used commands "
+                f"provide no routing signal on their own —{extra}\n"
                 + TRIGGER_SCHEMA_HINT
             )
-    # Broad-glob-only: the ONLY behavioral evidence is broad globs (a non-routable arg
-    # does not rescue this either, by the same decision-A reasoning).
-    if not cmds and not narrowing_args and paths and not non_broad_paths:
+    # Broad-glob-only: the ONLY behavioral evidence is broad globs (a non-routable arg or
+    # synonym does not rescue this either, by the same decision-A / ADR-0019 reasoning).
+    if not cmds and not narrowing_args and not narrowing_syns and paths and not non_broad_paths:
         return 2, (
             f"triggers.paths consists only of overly-broad glob(s) "
             f"({', '.join(paths)}) that match the entire home directory (no domain "
@@ -1544,7 +1579,8 @@ def check_write(memdir, content, target=None):
         # Decision A: pass the live routable-arg vocabulary (catalog byArg keys) so a
         # novel non-routable arg does not falsely rescue a low-signal command. Catalog
         # missing/unreadable => routable_args=None => gate fails open (any arg rescues).
-        rc, reason = _check_triggers(triggers, routable_args=_routable_args(memdir))
+        rc, reason = _check_triggers(triggers, routable_args=_routable_args(memdir),
+                                     routable_syns=_routable_synonyms(memdir))
         if rc:
             return rc, reason
         # D-11 Layer 2: dedup backstop — only for NEW files (target exists → overwrite/consolidation allowed)
@@ -1566,13 +1602,24 @@ def check_write(memdir, content, target=None):
         # fault (defense-in-depth beyond project_triggers' own internal fail-open)
         # degrades to static-gate-only — only the static GATE above can have denied.
         # Self-exclude the proposed memory by its stem.
+        #
+        # ADR-0019 / write-guard spec: the collision tier only fires for NEW files, like
+        # the dedup backstop above (`not Path(target).exists()`). Consolidation/update of
+        # an already-curated memory (append a finding, fix a typo) is ALWAYS allowed — the
+        # file is already in the store and part of the very cluster being counted, so
+        # re-blocking it on its own breadth would false-deny a routine edit.
         proj, degenerate = {}, False
         try:
-            stem = os.path.splitext(os.path.basename(str(target)))[0] if target else None
-            floor = load_config(memdir).get(
-                "collisionGuideFloor", DEFAULT_CONFIG["collisionGuideFloor"])
-            proj = project_triggers(memdir, triggers, stem=stem)
-            degenerate = collision_verdict(proj, triggers, floor) == "block-degenerate"
+            # Existence check inside the try: a pathological target (e.g. embedded null)
+            # could make Path(...).exists() raise on some Python versions — fail OPEN
+            # (treat as exempt, never block) rather than escape check_write.
+            is_new_file = not (target is not None and Path(target).exists())
+            if is_new_file:
+                stem = os.path.splitext(os.path.basename(str(target)))[0] if target else None
+                floor = load_config(memdir).get(
+                    "collisionGuideFloor", DEFAULT_CONFIG["collisionGuideFloor"])
+                proj = project_triggers(memdir, triggers, stem=stem)
+                degenerate = collision_verdict(proj, triggers, floor) == "block-degenerate"
         except Exception:
             degenerate = False                         # fail open to the static gate
         if degenerate:
@@ -1911,9 +1958,26 @@ def _load_catalog(memdir):
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text())
+        catalog = json.loads(p.read_text())
     except (json.JSONDecodeError, OSError):
         return None
+    # Shape validation (ADR-0019): JSON can parse to a structurally-invalid catalog
+    # (e.g. memories=int, triggerIndex=list). _load_catalog is the SINGLE catalog reader
+    # for every consumer — dedup_candidates (fail-closed write branch), search (advisory
+    # read path), project_triggers, _routable_args/_synonyms — so validating here makes a
+    # malformed-but-parseable catalog fail open everywhere (treated like missing/corrupt:
+    # None), instead of raising an uncaught TypeError/AttributeError in a hot consumer.
+    # Tolerant by design: a wrong-shaped sub-field degrades to "absent", never raises.
+    if not isinstance(catalog, dict):
+        return None
+    mems = catalog.get("memories", [])
+    if not isinstance(mems, list) or not all(isinstance(m, dict) for m in mems):
+        return None
+    if not isinstance(catalog.get("triggerIndex", {}), dict):
+        return None
+    if not isinstance(catalog.get("tagToMemoryIds", {}), dict):
+        return None
+    return catalog
 
 
 def _dedup_words(text):
@@ -1974,7 +2038,7 @@ TIER_WEIGHTS = {"strong": 10, "medium": 6, "weak": 3}
 # returns a FRESH dict so callers mutating result["collisions"] cannot corrupt a shared
 # module object.  Single source of the projection-result keys (D-04).
 def _empty_projection():
-    return {"collisions": [], "distinct_count": 0, "per_trigger": {}}
+    return {"collisions": [], "distinct_count": 0, "per_trigger": {}, "live_levers": []}
 
 
 def _score_tuples(tuples, mem, now, tier_weights):
@@ -2349,6 +2413,15 @@ def _project_triggers_impl(memdir, triggers, stem=None):
     index = catalog.get("triggerIndex", {})
     tag_to_mids = catalog.get("tagToMemoryIds", {})
 
+    # ---- Live (structurally-narrowing) author levers (ADR-0019) ----
+    # Computed from the SAME catalog index, here in the matcher's own projection so the
+    # verdict reads it directly (collision_verdict stays a pure read of the projection).
+    # Routability is independent of co-fire: a routable lever narrowing zero OTHER
+    # memories is the *best* narrowing, not a dead one.
+    routable_args = set((index.get("byArg") or {}).keys())
+    routable_syns = set((index.get("bySynonym") or {}).keys())
+    live_levers = _live_levers(triggers, routable_args, routable_syns)
+
     # ---- Build token list and abs_paths directly from proposed triggers ----
     # Do NOT call extract_tokens() — direct construction preserves per-field semantics
     # (RESEARCH Pitfall 2: extract_tokens Bash-branch only treats words[0] as command).
@@ -2444,24 +2517,127 @@ def _project_triggers_impl(memdir, triggers, stem=None):
         "collisions": collisions,
         "distinct_count": len(collisions),
         "per_trigger": {p: len(mids) for p, mids in per_trigger_hits.items()},
+        "live_levers": live_levers,
     }
 
 
-# ---------------------------------------------------------------- collision verdict (ENF, ADR-0017)
+# ---------------------------------------------------------------- narrowing-lever model (ADR-0019)
+def _is_broad_path(pat):
+    """True when a path pattern is so broad it carries no domain signal (subsumes ~/**).
+
+    Shared by the static gate and the live-lever model so both agree on what a
+    *specific* path is. Mirrors _check_triggers' inner _is_broad exactly: the literal
+    broad set plus any recursive glob whose non-wildcard root sits at or above $HOME.
+    """
+    home = str(Path.home())
+    broad_literals = ({_expand(g).rstrip("/") for g in BROAD_GLOBS} | {home, "/", ""})
+    p = os.path.expanduser(os.path.expandvars(pat)).rstrip("/")
+    if p in broad_literals:
+        return True
+    if p.endswith("/**"):
+        root = p[:-3]
+        for i, ch in enumerate(root):
+            if ch in "*?[":
+                root = root[:root.rfind("/", 0, i + 1) + 1]
+                break
+        root = root.rstrip("/") or "/"
+        if root == "/" or home == root or home.startswith(root + "/"):
+            return True
+    return False
+
+
+def _live_levers(triggers, routable_args, routable_syns):
+    """The author-supplied levers that STRUCTURALLY narrow recall (ADR-0019).
+
+    A lever is *live* when it would route the proposed memory at recall time,
+    independent of how many OTHER memories it co-fires with (a routable lever that
+    co-fires with zero others is the *best* possible narrowing, not a dead one — the
+    pre-ADR-0019 verdict summed co-fire counts and so false-denied perfectly-unique
+    levers, the v1.1 #1-rule violation). The liveness test MIRRORS _walk_index's own
+    routing so the verdict agrees with the matcher:
+      - arg     → live if in byArg OR bySynonym (the matcher routes an arg through BOTH;
+                  the grammar-tag-name route is intentionally excluded — a tag-name arg
+                  routes nothing in projection because that route is gated on empty
+                  `active`, so it is decorative, not narrowing).
+      - path    → live if SPECIFIC (not a broad glob); inherently discriminating, needs
+                  no catalog membership.
+      - synonym → live if in bySynonym.
+
+    routable_args / routable_syns are sets of RAW catalog `byArg` / `bySynonym` keys (as
+    stored, original case). Liveness applies `_norm` to the proposed lever — which both
+    lowercases AND drops forms the matcher can't route (TAG_RE: a lever like `--bare`,
+    `-p`, or `Terminal=true` _norm()s to None and is NOT live, exactly as the matcher
+    drops it) — then tests EXACT membership of that normalized value against the raw keys,
+    mirroring `_walk_index`'s `by_arg.get(_norm(arg))` lookup. This keeps liveness in
+    lockstep with what the matcher actually routes (a mixed-case stored key the matcher
+    can't reach is correctly treated as unroutable here too — never over-credited).
+
+    When either set is None (no catalog / direct call) the corresponding axis FAILS OPEN —
+    any non-empty lever on that axis is treated as live — so the model never hard-denies on
+    missing infra, matching the static gate's routable_args=None posture.
+
+    Returns the list of raw lever strings that are live (order: args, paths, synonyms).
+    """
+    triggers = triggers or {}
+    args = [a for a in (triggers.get("args") or []) if a]
+    paths = [p for p in (triggers.get("paths") or []) if p]
+    syns = [s for s in (triggers.get("synonyms") or []) if s]
+    live = []
+    # arg: matcher routes _norm(arg) through byArg OR bySynonym. None on either axis fails
+    # that axis open, so an arg is live if EITHER axis is open, OR its _norm hits a raw key.
+    for a in args:
+        v = _norm(a)
+        if (routable_args is None or routable_syns is None
+                or (v is not None and (v in routable_args or v in routable_syns))):
+            live.append(a)
+    live += [p for p in paths if not _is_broad_path(p)]       # a specific path always narrows
+    for s in syns:                                            # synonym: matcher routes _norm(syn) via bySynonym
+        v = _norm(s)
+        if routable_syns is None or (v is not None and v in routable_syns):
+            live.append(s)
+    return live
+
+
+def _routable_synonyms(memdir):
+    """The set of synonyms routable at recall time = keys of the catalog `bySynonym` index.
+
+    Mirror of _routable_args for the synonym axis (ADR-0019). Returns None on a
+    missing/unreadable catalog so the live-lever model FAILS OPEN on that axis.
+    """
+    try:
+        catalog = _load_catalog(memdir)
+        if not catalog:
+            return None
+        by_syn = catalog.get("triggerIndex", {}).get("bySynonym", {})
+        return set(by_syn.keys())
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- collision verdict (ENF, ADR-0017/0019)
 def collision_verdict(projection, triggers, floor):
     """Classify a project_triggers() result into a write-time enforcement verdict.
 
     Returns one of:
       "pass"             — no actionable breadth (empty, or distinct_count <= floor)
-      "guide-broad"      — breadth above the floor with an author-controlled axis
-                           (arg / path / synonym) contributing — advisory, never blocked
+      "guide-broad"      — breadth above the floor but the author supplied at least one
+                           STRUCTURALLY-NARROWING lever (routable arg / specific path /
+                           routable synonym) — advisory, never blocked
       "block-degenerate" — breadth above the floor carried ENTIRELY by the command axis
-                           with every author lever contributing zero distinct narrowing
+                           with NO narrowing author lever supplied
 
-    Per ADR-0017 the verdict is read from the per-component contribution, never from a
-    scalar sum across axes. When every author lever contributes 0, `distinct_count` IS
-    the command-axis breadth (commands are then the only contributors), so this reads
-    directly from the shipped projection output — no per-axis distinct-set recomputation.
+    ADR-0019 corrects the ADR-0017 bug: the verdict reads the projection's `live_levers`
+    — the author levers that would ROUTE the proposed memory at recall time — never the
+    `per_trigger` co-fire counts. A routable lever that co-fires with zero OTHER memories
+    is the *best* narrowing, not a dead one; the old `sum(per_trigger)==0` test inverted
+    that signal and false-denied perfectly-unique levers (the v1.1 #1-rule violation,
+    confirmed on the live corpus). `live_levers` is computed once, inside the single
+    matcher's projection walk, so the verdict stays a pure read of the projection.
+
+    Back-compat: a hand-built projection without `live_levers` (legacy callers / direct
+    pure-function use) falls back to the `per_trigger` co-fire sum so old fixtures keep
+    their meaning; project_triggers() always supplies `live_levers`, so the real
+    enforcement path uses the corrected model.
 
     Pure function; the empty projection that project_triggers() returns on any fault
     yields "pass", so the caller fails open to the static gate for free.
@@ -2470,8 +2646,12 @@ def collision_verdict(projection, triggers, floor):
     dc = proj.get("distinct_count", 0) or 0
     if dc <= floor:
         return "pass"
-    per = proj.get("per_trigger") or {}
     triggers = triggers or {}
+    if "live_levers" in proj:
+        # ADR-0019 model: routability, not co-fire. Any live lever → advisory.
+        return "guide-broad" if proj.get("live_levers") else "block-degenerate"
+    # Legacy fallback (no live_levers in a hand-built projection): old co-fire sum.
+    per = proj.get("per_trigger") or {}
     author_patterns = ((triggers.get("args") or [])
                        + (triggers.get("paths") or [])
                        + (triggers.get("synonyms") or []))

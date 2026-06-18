@@ -309,5 +309,249 @@ class TestAttributionParity(StoreBase):
             "proving attribution comes from the matcher walk, not a re-derivation from hits")
 
 
+# =====================================================================================
+# ADR-0019 regression: the live-lever model (routability, not co-fire)
+#
+# The v1.1 #1-rule violation: collision_verdict summed per_trigger CO-FIRE counts and
+# treated author_breadth==0 as "all levers dead". But a routable lever that co-fires with
+# ZERO other memories is the BEST narrowing, not a dead one. On the 165-memory live corpus
+# this false-denied exemplary curated memories (cachy-update-…, misfire-claude-dir-…) on a
+# full re-Write. The unit suite was green throughout because its fixtures never built the
+# "routable-but-unique lever above the command floor" pattern. These pin it.
+# =====================================================================================
+
+# A grammar with a routable arg (`uniquearg`) and a routable synonym (`solosyn`) that NO
+# memory carries — so each is in byArg/bySynonym (routable) yet co-fires with zero others
+# (per_trigger==0). `cargo` co-fires 4 (the rust memories) so breadth is above floor=2.
+GRAMMAR_0019 = """\
+# Unified Trigger Grammar
+Version: v0 (ADR-0019 routable-unique-lever fixture)
+Status: test
+
+---
+
+## tool
+
+### rust
+gloss: rust toolchain
+placement: either
+commands: [cargo, rustc]
+paths: []
+args: [build]
+synonyms: []
+related: []
+
+### solo
+gloss: a tag no memory carries; supplies a routable-but-unique arg and synonym
+placement: either
+commands: []
+paths: []
+args: [uniquearg]
+synonyms: [solosyn]
+related: []
+"""
+
+TAGS_0019 = """\
+# tags
+## tool
+- rust — rust toolchain
+- solo — routable-but-unused levers
+"""
+
+
+class TestLiveLeverModel(unittest.TestCase):
+    """ADR-0019: routability decides the verdict, never co-fire count."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = Path(self._td.name)
+        self._old = os.environ.get("MEMORY_SURFACE_DIR")
+        os.environ["MEMORY_SURFACE_DIR"] = str(self.store)
+        make_store(self.store, tags=TAGS_0019, links=LINKS_ENF, grammar=GRAMMAR_0019,
+                   memories={  # 4 rust memories → cargo co-fires 4 (> floor 2)
+                       "mem-rust-a.md": _mem("mem-rust-a", ["rust"]),
+                       "mem-rust-b.md": _mem("mem-rust-b", ["rust"]),
+                       "mem-rust-c.md": _mem("mem-rust-c", ["rust"]),
+                       "mem-rust-d.md": _mem("mem-rust-d", ["rust"]),
+                   }, config={"collisionGuideFloor": 2})
+
+    def tearDown(self):
+        self._td.cleanup()
+        if self._old is None:
+            os.environ.pop("MEMORY_SURFACE_DIR", None)
+        else:
+            os.environ["MEMORY_SURFACE_DIR"] = self._old
+
+    def _content(self, triggers, tags=("rust",)):
+        return _mem("mem-proposed", list(tags), triggers=triggers)
+
+    # ---- the BLOCKER itself: routable arg, ZERO co-fire, above floor → GUIDE not BLOCK ----
+    def test_routable_unique_arg_is_guide_not_block(self):
+        """cargo (co-fire 4 > floor) + `uniquearg` (in byArg, co-fires 0) → guide-broad.
+        Pre-ADR-0019 this BLOCKED (author_breadth==0) — the live-corpus false-deny."""
+        proj = ms.project_triggers(self.store, {"commands": ["cargo"], "args": ["uniquearg"]})
+        self.assertEqual(proj["per_trigger"].get("uniquearg"), 0,
+                         "the lever genuinely co-fires with zero others (it IS unique)")
+        self.assertIn("uniquearg", proj.get("live_levers", []),
+                      "a routable arg must be a live lever regardless of co-fire count")
+        self.assertEqual(
+            ms.collision_verdict(proj, {"commands": ["cargo"], "args": ["uniquearg"]}, 2),
+            "guide-broad", "a routable-but-unique lever must NOT be block-degenerate")
+        rc, msg = ms.check_write(
+            self.store, self._content({"commands": ["cargo"], "args": ["uniquearg"]}),
+            target=None)
+        self.assertEqual(rc, 0, f"routable-unique arg must not be false-denied; msg={msg!r}")
+
+    def test_routable_unique_synonym_is_guide_not_block(self):
+        """Same for a routable synonym (`solosyn`) that co-fires with nobody."""
+        proj = ms.project_triggers(self.store, {"commands": ["cargo"], "synonyms": ["solosyn"]})
+        self.assertEqual(proj["per_trigger"].get("solosyn"), 0)
+        self.assertIn("solosyn", proj.get("live_levers", []))
+        rc, msg = ms.check_write(
+            self.store, self._content({"commands": ["cargo"], "synonyms": ["solosyn"]}),
+            target=None)
+        self.assertEqual(rc, 0, f"routable-unique synonym must not be false-denied; msg={msg!r}")
+
+    def test_specific_unique_path_is_guide_not_block(self):
+        """A specific (non-broad) path that co-fires with nobody is a live lever."""
+        proj = ms.project_triggers(
+            self.store, {"commands": ["cargo"], "paths": ["~/.config/myapp/specific.toml"]})
+        self.assertIn("~/.config/myapp/specific.toml", proj.get("live_levers", []))
+        rc, msg = ms.check_write(
+            self.store,
+            self._content({"commands": ["cargo"], "paths": ["~/.config/myapp/specific.toml"]}),
+            target=None)
+        self.assertEqual(rc, 0, f"specific-unique path must not be false-denied; msg={msg!r}")
+
+    # ---- the genuine degenerate case STILL blocks: bare broad command, no live lever ----
+    def test_genuine_degenerate_still_blocks(self):
+        """cargo alone (no lever) above floor → block-degenerate (the pattern v1.1 targets)."""
+        proj = ms.project_triggers(self.store, {"commands": ["cargo"]})
+        self.assertEqual(proj.get("live_levers"), [])
+        rc, msg = ms.check_write(self.store, self._content({"commands": ["cargo"]}), target=None)
+        self.assertEqual(rc, 2, "a bare broad command with no live lever must still block")
+        self.assertIn("over-fire", msg)
+
+    def test_decorative_arg_still_blocks(self):
+        """A non-routable arg (`bogus`, not in byArg/bySynonym) is decorative → still blocks."""
+        proj = ms.project_triggers(self.store, {"commands": ["cargo"], "args": ["bogus"]})
+        self.assertEqual(proj["per_trigger"].get("bogus"), 0)
+        self.assertNotIn("bogus", proj.get("live_levers", []),
+                         "a non-routable arg is decorative, not a live lever")
+        rc, msg = ms.check_write(
+            self.store, self._content({"commands": ["cargo"], "args": ["bogus"]}), target=None)
+        self.assertEqual(rc, 2, "a decorative non-routable arg must not rescue a degenerate set")
+
+    # ---- liveness must MIRROR the matcher: an unroutable lever form is not live ----
+    def test_unroutable_arg_form_is_not_live(self):
+        """An arg whose value the matcher cannot route (a form _norm() drops — `--bare`, a
+        value with `=`, or a mixed-case key not stored lowercase) must NOT count as a live
+        lever, mirroring _walk_index's `by_arg.get(_norm(arg))` lookup. Otherwise the verdict
+        is more permissive than the matcher and would wrongly rescue a degenerate set."""
+        # `--bare` and `mode=fast` _norm() to None (fail TAG_RE); neither is routable.
+        for bad in ["--bare", "mode=fast"]:
+            ll = ms._live_levers({"args": [bad]}, {"build"}, set())
+            self.assertNotIn(bad, ll, f"{bad!r} is unroutable and must not be a live lever")
+        # A real grammar arg `build` (in byArg) IS live; its uppercase form routes via _norm too.
+        self.assertIn("build", ms._live_levers({"args": ["build"]}, {"build"}, set()))
+        self.assertIn("BUILD", ms._live_levers({"args": ["BUILD"]}, {"build"}, set()),
+                      "_norm lowercases, so an uppercase form of a routable arg is still live")
+        # A mixed-case key stored non-lowercase is NOT matcher-reachable, so not live.
+        self.assertNotIn("MixedCaseArg",
+                         ms._live_levers({"args": ["MixedCaseArg"]}, {"MixedCaseArg"}, set()),
+                         "a stored mixed-case key the matcher can't reach must not be live")
+
+    # ---- finding 2: existing-target (consolidation/update) is exempt from the collision tier ----
+    def test_existing_target_collision_exempt(self):
+        """A degenerate set is BLOCKED for a new file but ALLOWED when the target already
+        exists (consolidation/update is always allowed — write-guard spec, ADR-0019)."""
+        new_rc, _ = ms.check_write(self.store, self._content({"commands": ["cargo"]}),
+                                   target=str(self.store / "brand-new.md"))
+        self.assertEqual(new_rc, 2, "degenerate NEW file must block")
+        # Create the target, then re-write the same degenerate content to it.
+        existing = self.store / "mem-rust-a.md"
+        upd_rc, msg = ms.check_write(self.store, self._content({"commands": ["cargo"]}),
+                                     target=str(existing))
+        self.assertEqual(upd_rc, 0, f"degenerate UPDATE of an existing file must be exempt; msg={msg!r}")
+
+
+class TestStaticGateSynonymRescue(unittest.TestCase):
+    """ADR-0019 finding 3: a routable synonym rescues the static gate (tier-shadowing fix)."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = Path(self._td.name)
+        # git is low-signal; give the `solo` tag a synonym `gitwiz` so a git+synonym set
+        # is structurally narrowed at recall but was hard-denied by the pre-ADR-0019 gate.
+        grammar = GRAMMAR_0019.replace("synonyms: [solosyn]", "synonyms: [gitwiz]")
+        make_store(self.store, tags=TAGS_0019, links=LINKS_ENF, grammar=grammar,
+                   memories={"mem-rust-a.md": _mem("mem-rust-a", ["rust"])},
+                   config={"collisionGuideFloor": 2})
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_routable_synonym_rescues_low_signal_command(self):
+        ra = ms._routable_args(self.store)
+        rs = ms._routable_synonyms(self.store)
+        rc, _ = ms._check_triggers({"commands": ["git"], "synonyms": ["gitwiz"]},
+                                   routable_args=ra, routable_syns=rs)
+        self.assertEqual(rc, 0, "a routable synonym must rescue a low-signal command")
+
+    def test_bare_low_signal_still_denied(self):
+        ra = ms._routable_args(self.store)
+        rs = ms._routable_synonyms(self.store)
+        rc, _ = ms._check_triggers({"commands": ["git"]}, routable_args=ra, routable_syns=rs)
+        self.assertEqual(rc, 2, "a bare low-signal command must still be denied")
+
+    def test_nonroutable_synonym_does_not_rescue(self):
+        ra = ms._routable_args(self.store)
+        rs = ms._routable_synonyms(self.store)
+        rc, _ = ms._check_triggers({"commands": ["git"], "synonyms": ["nope-not-routable"]},
+                                   routable_args=ra, routable_syns=rs)
+        self.assertEqual(rc, 2, "a non-routable synonym must not rescue")
+
+
+class TestCatalogShapeFailOpen(unittest.TestCase):
+    """ADR-0019 finding 4/5: a malformed-but-parseable catalog fails open everywhere."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.store = Path(self._td.name)
+        (self.store / "_tags.md").write_text(TAGS_0019)
+        (self.store / "_grammar.md").write_text(GRAMMAR_0019)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _write_catalog(self, obj):
+        import json
+        (self.store / "_memory_catalog.json").write_text(json.dumps(obj))
+
+    def test_load_catalog_rejects_bad_shape(self):
+        for bad in ({"memories": 5}, {"memories": ["x", 1]}, {"memories": {"a": 1}},
+                    {"memories": [], "triggerIndex": [1]}, [1, 2, 3], "a string"):
+            self._write_catalog(bad)
+            self.assertIsNone(ms._load_catalog(self.store),
+                              f"malformed catalog {bad!r} must load as None")
+
+    def test_check_write_fails_open_on_bad_catalog(self):
+        self._write_catalog({"memories": 12345})
+        content = _mem("t", ["rust"], triggers={"commands": ["cargo"], "args": ["build"]})
+        try:
+            rc, _ = ms.check_write(self.store, content, target=str(self.store / "t.md"))
+        except Exception as e:  # pragma: no cover - the bug under test
+            self.fail(f"check_write must not raise on a malformed catalog: {e!r}")
+        self.assertEqual(rc, 0, "malformed catalog → fail open (no false-deny)")
+
+    def test_search_fails_open_on_bad_catalog(self):
+        self._write_catalog({"memories": 999})
+        try:
+            res = ms.search(self.store, {"tool": "Bash", "command": "git status"})
+        except Exception as e:  # pragma: no cover - the bug under test
+            self.fail(f"search must not raise on a malformed catalog: {e!r}")
+        self.assertEqual(res.get("results"), [], "malformed catalog → empty recall (fail open)")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -279,7 +279,7 @@ class Test04FailOpen(Base):
         """SC-4: monkeypatching _load_catalog to raise → returns empty projection, no raise."""
         with patch.object(ms, "_load_catalog", side_effect=RuntimeError("injected fault")):
             result = ms.project_triggers(self.store, {"commands": ["git"]})
-        self.assertEqual(result, {"collisions": [], "distinct_count": 0, "per_trigger": {}},
+        self.assertEqual(result, ms._empty_projection(),
                          "forced fault must return _EMPTY_PROJECTION exactly")
 
     def test_forced_fault_does_not_raise(self):
@@ -347,14 +347,14 @@ class Test06MissingCatalog(unittest.TestCase):
             os.environ["MEMORY_SURFACE_DIR"] = self._old_env
 
     def test_missing_catalog_returns_empty_projection(self):
-        """SC-6: no _memory_catalog.json → {collisions:[], distinct_count:0, per_trigger:{}}."""
+        """SC-6: no _memory_catalog.json → the canonical empty projection."""
         result = ms.project_triggers(self.empty_store, {"commands": ["git"]})
-        self.assertEqual(result, {"collisions": [], "distinct_count": 0, "per_trigger": {}})
+        self.assertEqual(result, ms._empty_projection())
 
     def test_nonexistent_memdir_returns_empty_projection(self):
         """SC-6 edge: nonexistent memdir → empty projection, no exception."""
         result = ms.project_triggers(Path("/nonexistent-dir-xyz-987"), {"commands": ["git"]})
-        self.assertEqual(result, {"collisions": [], "distinct_count": 0, "per_trigger": {}})
+        self.assertEqual(result, ms._empty_projection())
 
 
 # ---------------------------------------------------------------------------

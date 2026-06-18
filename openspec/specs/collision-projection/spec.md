@@ -41,6 +41,30 @@ and every routed co-fire is credited.
 - **WHEN** a proposed set has two commands that both co-fire with the same memories
 - **THEN** `per_trigger` credits each command its full distinct co-fire count (attribution is recorded pre-dedup)
 
+### Requirement: Projection reports the author's live (structurally-narrowing) levers
+
+The projection SHALL report `live_levers` (ADR-0019): the subset of the proposed author
+levers (args, paths, synonyms) that would ROUTE the proposed memory at recall time — a
+**routable** arg (in `byArg` OR `bySynonym`, mirroring the matcher's dual arg route), a
+**specific** (non-broad) path, or a **routable** synonym (in `bySynonym`). Liveness is a
+property of the lever's form and routability, computed from the SAME catalog the projection
+loads, and is **independent of `per_trigger` co-fire count** — a routable lever that
+co-fires with zero other memories is still live (and is in fact the best narrowing). The
+write-guard verdict reads `live_levers`, never the `per_trigger` sum (correcting the
+ADR-0017 co-fire model that false-denied perfectly-unique levers).
+
+#### Scenario: A routable arg with zero co-fire is still a live lever
+- **WHEN** a proposed arg is in the `byArg` vocabulary but no existing memory carries it (co-fire 0)
+- **THEN** `live_levers` includes that arg (routability, not co-fire, decides liveness)
+
+#### Scenario: A decorative (non-routable) arg is not a live lever
+- **WHEN** a proposed arg is in neither `byArg` nor `bySynonym`
+- **THEN** `live_levers` excludes it
+
+#### Scenario: A specific path is a live lever; a broad glob is not
+- **WHEN** a proposed set has a specific path (`~/.config/app/x.toml`) and a broad glob (`~/**`)
+- **THEN** `live_levers` includes the specific path and excludes the broad glob
+
 ### Requirement: Per-trigger breadth distinguishes noise from a single broad trigger
 
 The projection SHALL report per-pattern breadth so that "the whole set is noise" is observably
@@ -62,9 +86,11 @@ When `stem` is supplied, the proposed memory SHALL be excluded from both the col
 
 ### Requirement: Projection fails open
 
-Any internal error or missing/corrupt catalog SHALL return a fresh empty projection
-(`{collisions: [], distinct_count: 0, per_trigger: {}}`) and never raise, so a projection fault
-cannot block or mislead a write.
+Any internal error or missing/corrupt/malformed catalog SHALL return a fresh empty projection
+(`{collisions: [], distinct_count: 0, per_trigger: {}, live_levers: []}`) and never raise, so a
+projection fault cannot block or mislead a write. A malformed-but-parseable catalog (e.g.
+`memories` not a list of dicts) is rejected at the single catalog reader (`_load_catalog`) and
+treated exactly like a missing catalog (ADR-0019).
 
 #### Scenario: A forced fault returns an empty projection
 - **WHEN** the catalog load raises

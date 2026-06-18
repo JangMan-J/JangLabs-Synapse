@@ -1,6 +1,17 @@
 # Write-time collision enforcement reads a per-component verdict, not a scalar collision-count threshold
 
-**Status:** accepted
+**Status:** accepted; operative model **corrected by [ADR-0019](0019-collision-verdict-reads-live-levers-not-co-fire.md)**
+
+> **Correction (ADR-0019).** This ADR's thesis stands — block the degenerate, guide the
+> weak, floor the block, read the verdict from the projection (not a scalar `distinct_count`
+> sum). But its operationalization of "dead lever" as **`sum(per_trigger) == 0`** (zero
+> co-fire) was wrong: a routable lever that co-fires with zero *other* memories is the *best*
+> narrowing, not a dead one. Measured at ~9 memories this "blocked nothing"; at 165 it
+> false-denied exemplary curated memories — the #1-rule violation. ADR-0019 replaces the
+> co-fire test with **structural lever liveness (routability)**. Read this ADR for the
+> per-component/floored-block rationale; read ADR-0019 for the corrected liveness signal.
+> Specifically, the claim below that "on today's live corpus this model blocks nothing" is
+> **retired** — true only at the ~9-memory measurement, false on the grown corpus.
 
 The v1.1 milestone planned to wire the write-guard's corpus-aware tier as a **scalar
 block threshold**: deny a proposed memory whose projected `distinct_count` of co-firing
