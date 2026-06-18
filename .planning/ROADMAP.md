@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Tag Routing Reimagined** — Phases 1-4 (shipped 2026-06-12) — [archive](milestones/v1.0-ROADMAP.md)
-- 🚧 **v1.1 Write-Time Trigger Quality** — Phases 5-8 (in progress)
+- ✅ **v1.1 Write-Time Trigger Quality** — Phases 5-8 (shipped 2026-06-17) — [audit](milestones/v1.1-MILESTONE-AUDIT.md)
 
 ## Phases
 
@@ -19,7 +19,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 
 </details>
 
-### 🚧 v1.1 Write-Time Trigger Quality (In Progress)
+### ✅ v1.1 Write-Time Trigger Quality (Shipped 2026-06-17)
 
 **Milestone Goal:** Make trigger quality precise and verifiable at write time — discriminating, not merely present — using corpus signal that exists today, with zero dependence on accrued recall telemetry. Write-path only: the keystone `project_triggers` engine primitive reuses the existing matcher/index, the static gate is hardened to block real-but-broad low-signal commands, a shadow-calibration real-demonstration gate sets thresholds from the empirical corpus, and a two-tier "block the degenerate, guide the weak" enforcement is wired into the two existing write hooks. The read path is re-verified, never modified.
 
@@ -70,7 +70,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
 ### Phase 8: Corpus-Aware Enforcement Wiring
 **Goal**: The two-tier "block the degenerate, guide the weak" posture is live in the two existing write hooks — `check-write` denies corpus-noise-class collisions above the calibrated block threshold citing the colliding ids, `write_context` surfaces advisory guidance for weak-but-legitimate collisions without blocking, every new path fails open, and the read path is re-demonstrated unchanged. This phase consumes the calibrated thresholds from Phase 7 and the projection primitive from Phase 5.
 **Depends on**: Phase 5 (projection primitive), Phase 6 (hardened static gate), Phase 7 (calibration finding)
-**⚠️ PENDING REPLAN (2026-06-14):** Phase 7 superseded the scalar-threshold premise this phase was written against. The success criteria below still reference "distinct-collision count above the block threshold" — that signal is rejected. Phase 8 must be re-specced around the per-component verdict (BLOCK pure-command-breadth-with-dead-levers / GUIDE broad-author-axis / PASS) before planning. ENF-04 ("thresholds in config") re-scopes from a block cutoff to an advisory guide-breadth floor that cannot false-deny.
+**✅ REPLANNED + SHIPPED (2026-06-14):** Phase 7 superseded the scalar-threshold premise this phase was written against, so Phase 8 was re-specced — not via GSD but as the OpenSpec change `corpus-aware-enforcement-wiring` (GSD retired, ADR-0002; verb = openspec lifecycle). The success criteria below are kept verbatim **as originally written** for the historical record; the **as-shipped** posture replaces "distinct-collision count above the block threshold" with the per-component structural verdict (BLOCK pure-command-breadth-with-no-live-levers / GUIDE broad-author-axis at/above `collisionGuideFloor` / PASS). Rationale: ADR-0017; the dead-lever signal inversion corrected in ADR-0019. ENF-04 re-scoped from a block cutoff to an advisory guide-breadth floor that cannot false-deny.
 **Requirements**: ENF-01, ENF-02, ENF-03, ENF-04, ENF-05, QC-03, QC-04
 **Success Criteria** (what must be TRUE):
   1. A degenerate write (projected distinct-collision count above the block threshold) is denied by the guard with the colliding memory ids cited as the actionable reason; on any projection error only the static GATE rules apply and the write proceeds.
@@ -78,7 +78,7 @@ Full phase details: [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) · 
   3. Block and guide thresholds are read from `_memory_surface_config.json` and are tunable without code changes.
   4. Recall p95 is re-demonstrated within the existing ≤55ms budget after the write-path changes ship — the read path is structurally unchanged.
   5. Hook-level fixtures prove the end-to-end behavior (degenerate denied, weak-but-legit allowed-with-guidance), and all new paths honor the fail-open iron law, hooks-quiet-on-success discipline, no `permissions` writes, and no corpus data mutation.
-**Plans**: TBD
+**Plans**: shipped as OpenSpec change `corpus-aware-enforcement-wiring` (archived → living `openspec/specs/write-guard/`), not a GSD plan file. Implemented in `lib/memory_surface.py` (`collision_verdict` + `check_write` block tier + `write_context` advisory) with the ADR-0019 live-lever correction; fixtures `test_collision_enforcement.py` + `test_collision_hooks.sh`. ENF-01..05 + QC-03/04 satisfied; full suite green.
 
 ## Progress
 
@@ -94,7 +94,7 @@ Phases execute in numeric order: 5 → 6 → 7 → 8 (Phase 6 is corpus-independ
 | 5. Collision Projection Engine | v1.1 | 1/1 | Complete | 2026-06-13 |
 | 6. Hardened Static Gate | v1.1 | 1/1 | Complete | 2026-06-13 |
 | 7. Shadow Calibration | v1.1 | 1/1 | Complete (scalar rejected; per-component adopted) | 2026-06-14 |
-| 8. Corpus-Aware Enforcement Wiring | v1.1 | 0/TBD | Pending replan (per-component) | - |
+| 8. Corpus-Aware Enforcement Wiring | v1.1 | shipped (openspec) | Complete (per-component; replanned + shipped) | 2026-06-17 |
 
 ---
-*Next: run `/gsd-execute-phase 5` to execute the Collision Projection Engine.*
+*v1.1 shipped 2026-06-17 (all phases verified, full suite green). One carried follow-up: ENF-05 read-path p95 < 55ms (undirected — subprocess-startup dominated; the recall gate now WARNs, regression-relative per ADR-0018). Next milestone unscheduled; deferred candidates are TEL (telemetry-driven trigger refinement) and BACK (corpus backfill) once recall telemetry accrues.*

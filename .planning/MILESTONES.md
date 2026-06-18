@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.1 Write-Time Trigger Quality (Shipped: 2026-06-17)
+
+**Phases completed:** 4 phases (5-8), all verified. Audit: [milestones/v1.1-MILESTONE-AUDIT.md](milestones/v1.1-MILESTONE-AUDIT.md)
+
+**Key accomplishments:**
+
+- **Collision Projection Engine (Phase 5)** — `project_triggers()` projects a proposed trigger set against the live corpus and returns the distinct co-firing memories plus a `per_trigger` breadth table, built by extracting a shared `_walk_index` from `search()` so one matcher serves both read and projection (no second matcher — ADR-0015). Fails open to "no collisions" on any fault; pinned by a synthetic-catalog contract test.
+- **Hardened Static Gate (Phase 6)** — the blocking write gate now denies a trigger set whose only evidence is a low-signal command (bare `git`/`cat`/`ls`/…) with no narrowing arg or specific path, the same way it denies generic verbs. Vocabulary lives in one named `LOW_SIGNAL_COMMANDS` set; explicit bare-`git`-deny / `git`+arg-pass fixtures (ADR-0012). Corpus-independent — landed alongside Phase 5.
+- **Shadow Calibration (Phase 7)** — real-demonstration gate that **inverted the plan**: the live shadow distribution was degenerate-bimodal (`[0×9, 48]`), so no safe scalar block threshold exists (every `block≥N` false-denies the lone path-axis outlier; `≥49` is inert). The per-component contribution table was adopted as the enforcement signal instead — block/guide split by *which axis* carries the breadth, not by a tuned count. Recorded verbatim in `07-CALIBRATION.md`; zero legitimate memories false-denied.
+- **Corpus-Aware Enforcement Wiring (Phase 8)** — the two-tier "block the degenerate, guide the weak" posture wired into the two write hooks, re-specced as the OpenSpec change `corpus-aware-enforcement-wiring` (GSD verb retired, ADR-0002). Per-component verdict: BLOCK pure-command-breadth with no live author levers, GUIDE broad author-controlled axes at/above the single config floor `collisionGuideFloor`, PASS otherwise (ADR-0017). The dead-lever signal inversion was caught and corrected on the live 162-memory corpus before merge — the verdict now reads `live_levers` (levers that would *route* the memory at recall) rather than co-fire count, so a routable-but-unique lever is the best narrowing, not a block reason (ADR-0019). Consolidation/update writes exempt; catalog-shape validation makes every consumer fail open cleanly. Read path byte-unchanged (diff-proven).
+- **Perf gate made honest (ADR-0018)** — the recall p95 budget was rewritten regression-relative: WARN when over the ≤55ms design budget but within a 75ms regression ceiling, FAIL only on a real regression. This stops the gate false-failing on corpus-growth drift (p95 now ~59ms at the live ~166-memory corpus, write-path-only milestone). One follow-up carried forward, undirected: drive p95 back under 55ms (subprocess-startup dominated).
+- **Suite at close:** 437 passed / 10 skipped / 166 subtests (pytest), shell hooks 20 + 46 + 6 = 72 passing; recall bench p50 54 / p95 59ms, gate WARN within ceiling.
+
+---
+
 ## v1.0 Tag Routing Reimagined (Shipped: 2026-06-12)
 
 **Phases completed:** 4 phases, 15 plans, 42 tasks

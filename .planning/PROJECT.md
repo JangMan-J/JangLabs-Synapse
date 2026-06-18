@@ -14,7 +14,12 @@ always meant to be the star of the show.
 The right memory surfaces at the right moment with zero human curation — and the whole
 system stays legible and maximum-punch-per-pound while doing it.
 
-## Current Milestone: v1.1 Write-Time Trigger Quality
+## Latest Milestone: v1.1 Write-Time Trigger Quality — ✅ SHIPPED 2026-06-17
+
+> **Status:** All four phases (5-8) verified and committed; 19/19 requirements satisfied.
+> Audit: `.planning/milestones/v1.1-MILESTONE-AUDIT.md`. No milestone is currently active.
+> One carried follow-up (undirected): drive the recall read-path p95 < 55ms (ADR-0018 gate WARNs).
+> The goal and target-features below are retained as the milestone's defining statement.
 
 **Goal:** Make trigger quality precise and verifiable at write time — discriminating, not
 merely present — using corpus signal that exists today, with zero dependence on accrued
@@ -189,10 +194,15 @@ maintains metadata.**
 | Routing-led sequencing | Design the new routing core first; the reorganization falls out of what the core needs | ✓ Good — phase 4's reorg derived cleanly from the shipped core |
 | Tags-as-triggers paradigm | Unify vocabulary/rules/links into one artifact; makes orphan tags structurally impossible | ✓ Good — 146 memories routable, 0 unroutable, fires self-explain |
 | Write-time intelligence, read-time lookup | Cost asymmetry: writes are rare and model-attended; reads happen per tool call | ✓ Good — read path p95 48–54ms incl. telemetry |
-| Index = rebuildable build artifact | Eliminates migration burden forever; "clean slate" becomes a standing property | — Pending |
-| Zero human curation; telemetry-driven self-curation | The Roulette treadmill doesn't scale and contradicts the lab's automation ethos | — Pending |
-| Clean slate for routing metadata | Existing tags/vocabulary/catalogs need not migrate losslessly | — Pending |
-| Keep tags paradigm (no wholesale replacement) | The idea was right; the implementation sprawled — reimagine, don't replace | — Pending |
+| Index = rebuildable build artifact | Eliminates migration burden forever; "clean slate" becomes a standing property | ✓ Good — `_memory_catalog.json` rebuilt from store+grammar each write; live store 0 unroutable |
+| Zero human curation; telemetry-driven self-curation | The Roulette treadmill doesn't scale and contradicts the lab's automation ethos | ◑ Partial — mechanism shipped (v1.0); Roulette retired; the pass still evidence-defers all mutations under the minimum-evidence guard until recall telemetry accrues (by design) |
+| Clean slate for routing metadata | Existing tags/vocabulary/catalogs need not migrate losslessly | ✓ Good — routing rebuilt from triggers; legacy `_tag_links.md` inert since Phase 4 |
+| Keep tags paradigm (no wholesale replacement) | The idea was right; the implementation sprawled — reimagine, don't replace | ✓ Good — tags-as-triggers unified vocabulary/rules/links into one artifact; 0 orphan tags |
+
+| Collision projection reuses the read-path matcher (v1.1) | Inventing a second matcher would split the routing truth and rot (Principle 6 legibility) | ✓ Good — `_walk_index` extracted once, 2 call sites; ADR-0015 |
+| Scalar collision threshold REJECTED on live-corpus evidence (v1.1) | The shadow distribution was degenerate-bimodal (`[0×9, 48]`); every scalar N false-denies a legitimate memory | ✓ Good — caught at the calibration gate before any threshold shipped; per-component verdict adopted instead; ADR-0017 |
+| Verdict reads live-lever liveness, not co-fire count (v1.1) | "Dead lever = sum(per_trigger)==0" was a signal inversion — a unique-routing lever is the *best* narrowing; it false-denied curated memories at the 162-memory corpus | ✓ Good — caught on the live corpus before merge; verdict now reads `live_levers`; ADR-0019 |
+| Recall perf gate made regression-relative (v1.1) | An absolute ≤55ms cliff false-fails on corpus-growth drift unrelated to any code change | ✓ Good — WARN < 75ms ceiling, FAIL only on real regression; ADR-0018. Follow-up: p95 < 55ms still open |
 
 | p95 gate recalibrated 50→55ms (operator-approved) | Original constant from stale baseline; live legacy measured 52–59ms; new path 48–54ms | ✓ Good — gate honest and demonstrable |
 | Minimum-evidence guard on curation (≥10 session-days or ≥30d) | First live pass demoted 22 memories on hours-old telemetry — premature-decay class | ✓ Good — caught live, reverted, guarded, pinned by contract tests |
@@ -216,4 +226,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-13 — v1.1 Write-Time Trigger Quality milestone started*
+*Last updated: 2026-06-17 — v1.1 Write-Time Trigger Quality SHIPPED + closed out (planning docs reconciled; v1.1 milestone audit added)*
