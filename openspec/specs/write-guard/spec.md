@@ -28,7 +28,7 @@ memories only; `Edit`/`MultiEdit` and frontmatter-less content fail open.
 ### Requirement: Static degenerate-blocker gate
 
 The write-guard's static gate (`_check_triggers`) SHALL deny a trigger set that carries no
-narrowing author lever, across three arms:
+narrowing author lever, across two arms:
 
 1. **Generic/low-signal commands only.** The commands are all in `GENERIC_VERBS ∪
    LOW_SIGNAL_COMMANDS` (normalized `strip().lower()` to mirror the read path — so a MIX of
