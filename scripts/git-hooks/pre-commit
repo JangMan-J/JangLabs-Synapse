@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# pre-commit — thin trigger that defers to the lab's existing shellcheck runner.
+#
+# synapse already owns the shellcheck policy in scripts/lint.sh (manual/opt-in,
+# fail-closed, deliberately inverts the harness hook rules — see that file's
+# header). This hook does NOT reimplement any of that; it just runs lint.sh at
+# commit time so the same single source of truth gates commits too.
+#
+# Installed via: git config core.hooksPath scripts/git-hooks
+set -euo pipefail
+
+# Resolve repo root from the hook's own location so cwd doesn't matter.
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${hook_dir}/../.." && pwd)"
+cd "${repo_root}"
+
+# Gate at error severity: block only genuine breakage, not style notes. Operators
+# can still run ./scripts/lint.sh by hand for the full default-severity report.
+exec ./scripts/lint.sh --severity=error
